@@ -7,7 +7,7 @@
 ## Задание
 Сделать сервис веб-калькулятора на основе функции `func Calc(expression string) (float64, error) expression` из финального задания предыдущего спринта.
 
-#### Тербования:
+#### Требования:
 - Должна быть оформлена документация (данный readme).
 - У сервиса должен быть `1` endpoint с url-ом `/api/v1/calculate`
 - Сервер должен принимать `POST` запросы с телом в формате `JSON` следующего содержания:
@@ -43,11 +43,61 @@
 При её отсутствии, сервер запустится на порту по-умолчению - `8080`. 
 
 ## Запуск сервера
-
-## API
+1. Клонируйте на свой компьютер данный репозитарий командой:
+```bash
+git clone https://github.com/saykoooo/calc_go.git
+```
+2. Перейдите в каталог `calc_go`
+```bash
+cd calc_go
+```
+3. Установите порт для запуска сервера (Опционально, можно пропустить - запустится на порту по-умолчанию: `8080`)
+ - Windows CMD, например для порта 4200:
+```
+set PORT=4200
+```
+ - Linux (или git-bash на Windows), например для порта 4500:
+```bash
+export PORT=4500
+```
+4. Запустите из этого каталога сервер командой:
+```bash
+go run ./cmd
+```
+5. Остановить сервер можно с помощью сочетания клавиш `CTRL+C`
 
 ## Тесты
+Репозитарий содержит тесты:
+ - для http-сервера: `internal/application/application_test.go` 
+ - для функции `Сalc` - `pkg/calculation/calculation_test.go`
+
 Запуск тестов:
 ```bash
 go test -v ./...
+```
+
+Помимо вышеуказанных тестов, проверить функциональность сервера можно с помощью утилиты `curl`. 
+Обратите внимание, что существуют версии `curl` под Windows, которые не поддерживают 
+запросы без шифрования, поэтому рекомендую использовать `curl` из `git-bash`.
+
+- Валидный запрос/ответ:
+```bash
+curl --location 'localhost:8080/api/v1/calculate' --header 'Content-Type: application/json' --data '{ "expression": "2+2*2" }'
+```
+```JSON
+{"result":"6.000000"}
+```
+- Невалидный запрос/ответ:
+```bash
+curl --location 'localhost:8080/api/v1/calculate' --header 'Content-Type: application/json' --data '{ "expression": "2+2*2/0" }'
+```
+```JSON
+{"error":"Expression is not valid"}
+```
+- Неправильный метод HTTP запроса/ответ:
+```bash
+curl -X GET --location 'localhost:8080/api/v1/calculate' --header 'Content-Type: application/json' --data '{ "expression": "2+2*2" }'
+```
+```
+Method not allowed
 ```
