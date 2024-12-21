@@ -1,15 +1,14 @@
 package application
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/saykoooo/calc_go/pkg/calculation"
 	"log"
 	"net/http"
 	"os"
-	"strings"
+
+	"github.com/saykoooo/calc_go/pkg/calculation"
 )
 
 type Config struct {
@@ -40,35 +39,6 @@ type Application struct {
 func New() *Application {
 	return &Application{
 		config: ConfigFromEnv(),
-	}
-}
-
-// Функция запуска приложения
-// тут будем чиать введенную строку и после нажатия ENTER писать результат работы программы на экране
-// если пользователь ввел exit - то останаваливаем приложение
-func (a *Application) Run() error {
-	for {
-		// читаем выражение для вычисления из командной строки
-		log.Println("input expression")
-		reader := bufio.NewReader(os.Stdin)
-		text, err := reader.ReadString('\n')
-		if err != nil {
-			log.Println("failed to read expression from console")
-		}
-		// убираем пробелы, чтобы оставить только вычислемое выражение
-		text = strings.TrimSpace(text)
-		// выходим, если ввели команду "exit"
-		if text == "exit" {
-			log.Println("aplication was successfully closed")
-			return nil
-		}
-		//вычисляем выражение
-		result, err := calculation.Calc(text)
-		if err != nil {
-			log.Println(text, " calculation failed wit error: ", err)
-		} else {
-			log.Println(text, "=", result)
-		}
 	}
 }
 
@@ -107,7 +77,7 @@ func CalcHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, calculation.ErrInvalidExpression) || errors.Is(err, calculation.ErrDivByZero) {
 			w.WriteHeader(http.StatusUnprocessableEntity)
-			errJsonData, _ := json.Marshal(RespError{Error: err.Error()})
+			errJsonData, _ := json.Marshal(RespError{Error: calculation.ErrInvalidExpression.Error()})
 			w.Write(errJsonData)
 		} else {
 			w.WriteHeader(http.StatusInternalServerError)
