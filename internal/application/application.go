@@ -22,15 +22,6 @@ type Config struct {
 	TimeDivision       time.Duration
 }
 
-// type RespOk struct {
-// 	Result string `json:"result"`
-// }
-
-// type RespError struct {
-// 	Error string `json:"error"`
-// }
-
-// Токен для парсинга
 type Token struct {
 	Type  string // num, op, paren
 	Value string
