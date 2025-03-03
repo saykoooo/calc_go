@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/saykoooo/calc_go/internal/application"
-	"github.com/saykoooo/calc_go/pkg/calculation"
 )
 
 // Тест статус 200
@@ -81,8 +80,8 @@ func TestCalcHandler_InvalidExpression(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("could not unmarshal response: %v", err)
 	}
-	if resp.Error != calculation.ErrInvalidExpression.Error() {
-		t.Errorf("handler returned unexpected error message: got %v want %v", resp.Error, calculation.ErrInvalidExpression.Error())
+	if resp.Error != application.ErrInvalidExpression.Error() {
+		t.Errorf("handler returned unexpected error message: got %v want %v", resp.Error, application.ErrInvalidExpression.Error())
 	}
 }
 
