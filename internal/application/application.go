@@ -169,10 +169,38 @@ func CalcHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"id": exprID})
 }
 
+func GetExpressionsHandler(w http.ResponseWriter, r *http.Request) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	response := struct {
+		Expressions []ExpressionStatus `json:"expressions"`
+	}{
+		Expressions: make([]ExpressionStatus, 0, len(expressions)),
+	}
+
+	for _, expr := range expressions {
+		response.Expressions = append(response.Expressions, ExpressionStatus{
+			ID:     expr.ID,
+			Status: expr.Status,
+			Result: expr.Result,
+		})
+	}
+
+	log.Println("Returning list of expressions")
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding response: %v", err)
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
 func (a *Application) RunServer() error {
 	mux := http.NewServeMux()
 	mux.Handle("/", LoggingMiddleware(http.HandlerFunc(NotFoundHandler)))
 	mux.Handle("/api/v1/calculate", LoggingMiddleware(http.HandlerFunc(CalcHandler)))
+	mux.Handle("/api/v1/expressions", LoggingMiddleware(http.HandlerFunc(GetExpressionsHandler)))
 	log.Printf("Web server run on port: %s\n", a.config.Addr)
 	return http.ListenAndServe(":"+a.config.Addr, mux)
 }
