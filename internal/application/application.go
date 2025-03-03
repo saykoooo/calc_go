@@ -118,6 +118,119 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (a *Application) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	log.Println("Searching for tasks...")
+	var task *Node
+	for _, node := range nodes {
+		if node.Type == "operation" && node.Status == "pending" {
+			left, existsLeft := nodes[node.Left]
+			right, existsRight := nodes[node.Right]
+
+			if existsLeft && existsRight && left.Status == "done" && right.Status == "done" {
+				task = node
+				break
+			}
+		}
+	}
+
+	if task == nil {
+		log.Println("No pending tasks available")
+		http.Error(w, "no task", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("Found task with ID %s: %s %f %s %f", task.ID, task.Operation, nodes[task.Left].Result, task.Operation, nodes[task.Right].Result)
+
+	left, existsLeft := nodes[task.Left]
+	right, existsRight := nodes[task.Right]
+
+	if !existsLeft || !existsRight {
+		log.Printf("Invalid node reference for task %s", task.ID)
+		http.Error(w, "invalid node reference", http.StatusInternalServerError)
+		return
+	}
+
+	arg1 := left.Result
+	arg2 := right.Result
+
+	if task.Operation == "/" && arg2 == 0 {
+		log.Printf("Division by zero in task %s", task.ID)
+		task.Status = "error"
+		expr := expressions[task.ExprID]
+		expr.Status = "error"
+		http.Error(w, "division by zero", http.StatusInternalServerError)
+		return
+	}
+
+	var opTime time.Duration
+	switch task.Operation {
+	case "+":
+		opTime = a.config.TimeAddition
+	case "-":
+		opTime = a.config.TimeSubtraction
+	case "*":
+		opTime = a.config.TimeMultiplication
+	case "/":
+		opTime = a.config.TimeDivision
+	default:
+		log.Printf("Invalid operation %s in task %s", task.Operation, task.ID)
+		http.Error(w, "invalid operation", http.StatusInternalServerError)
+		return
+	}
+
+	task.Status = "in_progress"
+	log.Printf("Task %s marked as in_progress", task.ID)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"task": map[string]interface{}{
+			"id":             task.ID,
+			"arg1":           arg1,
+			"arg2":           arg2,
+			"operation":      task.Operation,
+			"operation_time": opTime.Milliseconds(),
+		},
+	})
+}
+
+func PostTaskHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID     string  `json:"id"`
+		Result float64 `json:"result"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("Invalid request body: %v", err)
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	node, exists := nodes[req.ID]
+	if !exists {
+		log.Printf("Task with ID %s not found", req.ID)
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+
+	node.Result = req.Result
+	node.Status = "done"
+	log.Printf("Task %s completed with result %f", req.ID, req.Result)
+
+	expr := expressions[node.ExprID]
+	if node.ID == expr.RootNodeID {
+		expr.Result = req.Result
+		expr.Status = "done"
+		log.Printf("Expression %s completed with result %f", expr.ID, req.Result)
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
 func NotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/api/v1/calculate" {
 		http.Error(w, "Bad URL", http.StatusNotFound)
@@ -201,6 +314,8 @@ func (a *Application) RunServer() error {
 	mux.Handle("/", LoggingMiddleware(http.HandlerFunc(NotFoundHandler)))
 	mux.Handle("/api/v1/calculate", LoggingMiddleware(http.HandlerFunc(CalcHandler)))
 	mux.Handle("/api/v1/expressions", LoggingMiddleware(http.HandlerFunc(GetExpressionsHandler)))
+	mux.Handle("GET /internal/task", LoggingMiddleware(http.HandlerFunc(a.GetTaskHandler)))
+	mux.Handle("POST /internal/task", LoggingMiddleware(http.HandlerFunc(PostTaskHandler)))
 	log.Printf("Web server run on port: %s\n", a.config.Addr)
 	return http.ListenAndServe(":"+a.config.Addr, mux)
 }
