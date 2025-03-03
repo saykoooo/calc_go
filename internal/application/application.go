@@ -1,27 +1,40 @@
 package application
 
 import (
+	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
 )
 
 type Config struct {
-	Addr string
+	Addr               string
+	TimeAddition       time.Duration
+	TimeSubtraction    time.Duration
+	TimeMultiplication time.Duration
+	TimeDivision       time.Duration
 }
 
-type RespOk struct {
-	Result string `json:"result"`
-}
+// type RespOk struct {
+// 	Result string `json:"result"`
+// }
 
-type RespError struct {
-	Error string `json:"error"`
+// type RespError struct {
+// 	Error string `json:"error"`
+// }
+
+// Токен для парсинга
+type Token struct {
+	Type  string // num, op, paren
+	Value string
+	Num   float64
 }
 
 type Expression struct {
@@ -50,12 +63,24 @@ type Node struct {
 	Parents   []string
 }
 
+var (
+	expressions = make(map[string]*Expression)
+	nodes       = make(map[string]*Node)
+	mu          sync.Mutex
+	idCounter   int
+	idMutex     sync.Mutex
+)
+
 func ConfigFromEnv() *Config {
 	config := new(Config)
 	config.Addr = os.Getenv("PORT")
 	if config.Addr == "" {
 		config.Addr = "8080"
 	}
+	config.TimeAddition = getEnvDuration("TIME_ADDITION_MS", 1000)
+	config.TimeSubtraction = getEnvDuration("TIME_SUBTRACTION_MS", 1000)
+	config.TimeMultiplication = getEnvDuration("TIME_MULTIPLICATION_MS", 1000)
+	config.TimeDivision = getEnvDuration("TIME_DIVISION_MS", 1000)
 	return config
 }
 
@@ -113,23 +138,35 @@ func CalcHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	result, err := Calc(request.Expression)
+	root, result, err := parseExpression(request.Expression)
 	if err != nil {
-		if errors.Is(err, ErrInvalidExpression) || errors.Is(err, ErrDivByZero) {
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			errJsonData, _ := json.Marshal(RespError{Error: ErrInvalidExpression.Error()})
-			w.Write(errJsonData)
-		} else {
-			w.WriteHeader(http.StatusInternalServerError)
-			errJsonData, _ := json.Marshal(RespError{Error: "Internal server error"})
-			w.Write(errJsonData)
-		}
-	} else {
-		w.WriteHeader(http.StatusOK)
-		s := fmt.Sprintf("%f", result)
-		okJsonData, _ := json.Marshal(RespOk{Result: s})
-		w.Write(okJsonData)
+		log.Printf("Error parsing expression: %v", err)
+		http.Error(w, "invalid expression", http.StatusUnprocessableEntity)
+		return
 	}
+
+	exprID := generateID()
+	mu.Lock()
+	defer mu.Unlock()
+
+	expressions[exprID] = &Expression{
+		ID:         exprID,
+		Status:     "processing",
+		RootNodeID: root.ID,
+	}
+
+	for _, n := range result {
+		n.ExprID = exprID
+		nodes[n.ID] = n
+	}
+	log.Println("Nodes after saving:")
+	for _, n := range nodes {
+		log.Printf("Node ID: %s, Type: %s, Status: %s, Left: %s, Right: %s", n.ID, n.Type, n.Status, n.Left, n.Right)
+	}
+	log.Printf("Expression with ID %s created and processing started", exprID)
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"id": exprID})
 }
 
 func (a *Application) RunServer() error {
@@ -140,138 +177,170 @@ func (a *Application) RunServer() error {
 	return http.ListenAndServe(":"+a.config.Addr, mux)
 }
 
-func Calc(expression string) (float64, error) {
-	tokens := splitToTokens(expression)
+func parseExpression(expression string) (*Node, []*Node, error) {
+	tokens, err := splitToTokens(expression)
+	if err != nil {
+		return nil, nil, err
+	}
 	rp, err := toReversePolish(tokens)
 	if err != nil {
-		return 0, err
+		return nil, nil, err
 	}
 	return evaluate(rp)
 }
 
-func splitToTokens(expression string) []string {
-	var tokens []string
-	var current strings.Builder
+func splitToTokens(expr string) ([]Token, error) {
+	var tokens []Token
+	expr = strings.ReplaceAll(expr, " ", "")
+	buf := new(bytes.Buffer)
 
-	for _, char := range expression {
-		if char == ' ' {
-			continue
-		}
-		if isOperator(string(char)) || char == '(' || char == ')' {
-			if current.Len() > 0 {
-				tokens = append(tokens, current.String())
-				current.Reset()
+	for _, r := range expr {
+		switch {
+		case unicode.IsDigit(r) || r == '.':
+			buf.WriteRune(r)
+		case isOperator(r):
+			if buf.Len() > 0 {
+				num, err := strconv.ParseFloat(buf.String(), 64)
+				if err != nil {
+					return nil, fmt.Errorf("invalid number: %s", buf.String())
+				}
+				tokens = append(tokens, Token{Type: "num", Num: num})
+				buf.Reset()
 			}
-			tokens = append(tokens, string(char))
-		} else {
-			current.WriteRune(char)
+			tokens = append(tokens, Token{Type: "op", Value: string(r)})
+		case r == '(' || r == ')':
+			if buf.Len() > 0 {
+				num, err := strconv.ParseFloat(buf.String(), 64)
+				if err != nil {
+					return nil, fmt.Errorf("invalid number: %s", buf.String())
+				}
+				tokens = append(tokens, Token{Type: "num", Num: num})
+				buf.Reset()
+			}
+			tokens = append(tokens, Token{Type: "paren", Value: string(r)})
+		default:
+			return nil, fmt.Errorf("invalid character: %c", r)
 		}
 	}
-	if current.Len() > 0 {
-		tokens = append(tokens, current.String())
+
+	if buf.Len() > 0 {
+		num, err := strconv.ParseFloat(buf.String(), 64)
+		if err != nil {
+			return nil, err
+		}
+		tokens = append(tokens, Token{Type: "num", Num: num})
 	}
-	return tokens
+
+	return tokens, nil
 }
 
-func toReversePolish(tokens []string) ([]string, error) {
-	var output []string
-	var operators []string
+func toReversePolish(tokens []Token) ([]Token, error) {
+	var output []Token
+	var stack []Token
+
+	priority := map[string]int{
+		"+": 1,
+		"-": 1,
+		"*": 2,
+		"/": 2,
+	}
 
 	for _, token := range tokens {
-		if isNumber(token) {
+		switch token.Type {
+		case "num":
 			output = append(output, token)
-		} else if token == "(" {
-			operators = append(operators, token)
-		} else if token == ")" {
-			for len(operators) > 0 && operators[len(operators)-1] != "(" {
-				output = append(output, operators[len(operators)-1])
-				operators = operators[:len(operators)-1]
+		case "op":
+			for len(stack) > 0 && stack[len(stack)-1].Type == "op" &&
+				priority[token.Value] <= priority[stack[len(stack)-1].Value] &&
+				stack[len(stack)-1].Value != "(" {
+				output = append(output, stack[len(stack)-1])
+				stack = stack[:len(stack)-1]
 			}
-			if len(operators) == 0 {
-				return nil, ErrInvalidExpression
+			stack = append(stack, token)
+		case "paren":
+			if token.Value == "(" {
+				stack = append(stack, token)
+			} else if token.Value == ")" {
+				for len(stack) > 0 && stack[len(stack)-1].Value != "(" {
+					output = append(output, stack[len(stack)-1])
+					stack = stack[:len(stack)-1]
+				}
+				if len(stack) == 0 {
+					return nil, fmt.Errorf("mismatched parentheses")
+				}
+				stack = stack[:len(stack)-1]
 			}
-			operators = operators[:len(operators)-1]
-		} else if isOperator(token) {
-			for len(operators) > 0 && priority(operators[len(operators)-1]) >= priority(token) {
-				output = append(output, operators[len(operators)-1])
-				operators = operators[:len(operators)-1]
-			}
-			operators = append(operators, token)
-		} else {
-			return nil, ErrInvalidExpression
 		}
 	}
 
-	for len(operators) > 0 {
-		if operators[len(operators)-1] == "(" {
-			return nil, ErrInvalidExpression
+	for len(stack) > 0 {
+		if stack[len(stack)-1].Value == "(" {
+			return nil, fmt.Errorf("mismatched parentheses")
 		}
-		output = append(output, operators[len(operators)-1])
-		operators = operators[:len(operators)-1]
+		output = append(output, stack[len(stack)-1])
+		stack = stack[:len(stack)-1]
 	}
 
 	return output, nil
 }
 
-func evaluate(rp []string) (float64, error) {
-	var stack []float64
+func evaluate(rp []Token) (*Node, []*Node, error) {
+	var stack []*Node
+	var allNodes []*Node
 
 	for _, token := range rp {
-		if isNumber(token) {
-			num, err := strconv.ParseFloat(token, 64)
-			if err != nil {
-				return 0, ErrInvalidExpression
+		if token.Type == "num" {
+			node := &Node{
+				ID:     generateID(),
+				Type:   "number",
+				Value:  token.Num,
+				Status: "done",
+				Result: token.Num,
 			}
-			stack = append(stack, num)
-		} else if isOperator(token) {
+			stack = append(stack, node)
+			allNodes = append(allNodes, node)
+		} else if token.Type == "op" {
 			if len(stack) < 2 {
-				return 0, ErrInvalidExpression
+				return nil, nil, fmt.Errorf("invalid expression")
 			}
-			b := stack[len(stack)-1]
-			a := stack[len(stack)-2]
+
+			right := stack[len(stack)-1]
+			left := stack[len(stack)-2]
 			stack = stack[:len(stack)-2]
 
-			var result float64
-			switch token {
-			case "+":
-				result = a + b
-			case "-":
-				result = a - b
-			case "*":
-				result = a * b
-			case "/":
-				if b == 0 {
-					return 0, ErrDivByZero
-				}
-				result = a / b
+			node := &Node{
+				ID:        generateID(),
+				Type:      "operation",
+				Operation: token.Value,
+				Left:      left.ID,
+				Right:     right.ID,
+				Status:    "pending",
+				Parents:   []string{},
 			}
-			stack = append(stack, result)
-		} else {
-			return 0, ErrInvalidExpression
+
+			left.Parents = append(left.Parents, node.ID)
+			right.Parents = append(right.Parents, node.ID)
+
+			stack = append(stack, node)
+			allNodes = append(allNodes, node)
 		}
 	}
 
 	if len(stack) != 1 {
-		return 0, ErrInvalidExpression
+		return nil, nil, fmt.Errorf("invalid expression")
 	}
-	return stack[0], nil
+
+	return stack[0], allNodes, nil
 }
 
-func isOperator(token string) bool {
-	return token == "+" || token == "-" || token == "*" || token == "/"
+func isOperator(token rune) bool {
+	return token == '+' || token == '-' || token == '*' || token == '/'
 }
 
-func isNumber(token string) bool {
-	_, err := strconv.ParseFloat(token, 64)
-	return err == nil
-}
-
-func priority(op string) int {
-	switch op {
-	case "+", "-":
-		return 1
-	case "*", "/":
-		return 2
-	}
-	return 0
+// Генерация UID
+func generateID() string {
+	idMutex.Lock()
+	defer idMutex.Unlock()
+	idCounter++
+	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), idCounter)
 }
