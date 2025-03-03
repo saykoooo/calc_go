@@ -301,11 +301,44 @@ func GetExpressionsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func GetExpressionByIdHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	expr, exists := expressions[id]
+	if !exists {
+		log.Printf("Expression with ID %s not found", id)
+		http.Error(w, "expression not found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("Returning expression with ID %s", id)
+	response := struct {
+		Expression ExpressionStatus `json:"expression"`
+	}{
+		Expression: ExpressionStatus{
+			ID:     expr.ID,
+			Status: expr.Status,
+			Result: expr.Result,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding response: %v", err)
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
+	}
+}
+
 func (a *Application) RunServer() error {
 	mux := http.NewServeMux()
 	mux.Handle("/", LoggingMiddleware(http.HandlerFunc(NotFoundHandler)))
 	mux.Handle("/api/v1/calculate", LoggingMiddleware(http.HandlerFunc(CalcHandler)))
 	mux.Handle("/api/v1/expressions", LoggingMiddleware(http.HandlerFunc(GetExpressionsHandler)))
+	mux.Handle("/api/v1/expression/{id}", LoggingMiddleware(http.HandlerFunc(GetExpressionByIdHandler)))
 	mux.Handle("GET /internal/task", LoggingMiddleware(http.HandlerFunc(a.GetTaskHandler)))
 	mux.Handle("POST /internal/task", LoggingMiddleware(http.HandlerFunc(PostTaskHandler)))
 	log.Printf("Web server run on port: %s\n", a.config.Addr)
