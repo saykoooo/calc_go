@@ -75,6 +75,7 @@ func ConfigFromEnv() *Config {
 	config := new(Config)
 	config.Addr = os.Getenv("PORT")
 	if config.Addr == "" {
+		log.Println("Missing PORT environment variable. Using default value: 8080")
 		config.Addr = "8080"
 	}
 	config.TimeAddition = getEnvDuration("TIME_ADDITION_MS", 1000)

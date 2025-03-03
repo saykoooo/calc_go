@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -14,8 +19,20 @@ type Task struct {
 	OperationTime int     `json:"operation_time"`
 }
 
-func main() {
-	computingPower := 1
+var serverPort string
+
+func RunAgent() {
+	serverPort = os.Getenv("PORT")
+	if serverPort == "" {
+		log.Println("Missing PORT environment variable. Using default value: 8080")
+		serverPort = "8080"
+	}
+	computingPower, err := strconv.Atoi(os.Getenv("COMPUTING_POWER"))
+	if err != nil || computingPower <= 0 {
+		log.Println("Invalid or missing COMPUTING_POWER environment variable. Using default value: 1")
+		computingPower = 1
+	}
+
 	log.Printf("Starting %d worker threads", computingPower)
 	for i := 0; i < computingPower; i++ {
 		go worker()
@@ -59,10 +76,47 @@ func getTask() (*Task, error) {
 		Task Task `json:"task"`
 	}
 
+	resp, err := http.Get("http://localhost:" + serverPort + "/internal/task")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch task: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode task: %v", err)
+	}
+
 	return &response.Task, nil
 }
 
 func sendResult(id string, result float64) error {
+	data := map[string]interface{}{
+		"id":     id,
+		"result": result,
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal result data: %v", err)
+	}
+
+	resp, err := http.Post(
+		"http://localhost:"+serverPort+"/internal/task",
+		"application/json",
+		bytes.NewReader(jsonData),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to send result: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code when sending result: %d", resp.StatusCode)
+	}
+
 	return nil
 }
 
