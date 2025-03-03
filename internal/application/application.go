@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -23,6 +24,32 @@ type RespError struct {
 	Error string `json:"error"`
 }
 
+type Expression struct {
+	ID         string
+	Status     string
+	RootNodeID string
+	Result     float64
+}
+
+type ExpressionStatus struct {
+	ID     string  `json:"id"`
+	Status string  `json:"status"`
+	Result float64 `json:"result"`
+}
+
+type Node struct {
+	ID        string
+	ExprID    string
+	Type      string
+	Value     float64
+	Left      string
+	Right     string
+	Operation string
+	Status    string
+	Result    float64
+	Parents   []string
+}
+
 func ConfigFromEnv() *Config {
 	config := new(Config)
 	config.Addr = os.Getenv("PORT")
@@ -30,6 +57,19 @@ func ConfigFromEnv() *Config {
 		config.Addr = "8080"
 	}
 	return config
+}
+
+func getEnvDuration(name string, defVal int) time.Duration {
+	val := os.Getenv(name)
+	if val == "" {
+		return time.Duration(defVal) * time.Millisecond
+	}
+	num, err := strconv.Atoi(val)
+	if err != nil {
+		log.Printf("Invalid value for %s: %s. Using default value %d ms", name, val, defVal)
+		return time.Duration(defVal) * time.Millisecond
+	}
+	return time.Duration(num) * time.Millisecond
 }
 
 type Application struct {
