@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -19,55 +20,66 @@ type Task struct {
 	OperationTime int     `json:"operation_time"`
 }
 
-var serverPort string
+var (
+	shutdownCh = make(chan struct{})
+	serverPort string
+	wg         sync.WaitGroup
+)
 
 func RunAgent() {
 	serverPort = os.Getenv("PORT")
 	if serverPort == "" {
-		log.Println("Missing PORT environment variable. Using default value: 8080")
 		serverPort = "8080"
 	}
-	computingPower, err := strconv.Atoi(os.Getenv("COMPUTING_POWER"))
-	if err != nil || computingPower <= 0 {
-		log.Println("Invalid or missing COMPUTING_POWER environment variable. Using default value: 1")
+
+	computingPower, _ := strconv.Atoi(os.Getenv("COMPUTING_POWER"))
+	if computingPower <= 0 {
 		computingPower = 1
 	}
 
 	log.Printf("Starting %d worker threads", computingPower)
+
+	wg.Add(computingPower)
 	for i := 0; i < computingPower; i++ {
 		go worker()
 	}
 
-	select {}
+	<-shutdownCh
+	log.Println("Shutting down agent...")
+	wg.Wait()
 }
 
 func worker() {
+	defer wg.Done()
 	for {
-		task, err := getTask()
-		if err != nil {
-			log.Printf("Failed to get task: %v. Retrying in 1 second...", err)
-			time.Sleep(1 * time.Second)
-			continue
+		select {
+		case <-shutdownCh:
+			return
+		default:
+			task, err := getTask()
+			if err != nil {
+				log.Printf("Failed to get task: %v. Retrying in 1 second...", err)
+				time.Sleep(1 * time.Second)
+				continue
+			}
+
+			log.Printf("Received task: ID=%s, Operation=%s, Arg1=%.2f, Arg2=%.2f",
+				task.ID, task.Operation, task.Arg1, task.Arg2)
+
+			result, err := compute(task.Arg1, task.Arg2, task.Operation)
+			if err != nil {
+				log.Printf("Error during computation: %v", err)
+				continue
+			}
+
+			log.Printf("Computation result for task %s: %.2f", task.ID, result)
+
+			time.Sleep(time.Duration(task.OperationTime) * time.Millisecond)
+
+			if err := sendResult(task.ID, result); err != nil {
+				log.Printf("Failed to send result for task %s: %v", task.ID, err)
+			}
 		}
-
-		log.Printf("Received task: ID=%s, Operation=%s, Arg1=%.2f, Arg2=%.2f", task.ID, task.Operation, task.Arg1, task.Arg2)
-
-		result, err := compute(task.Arg1, task.Arg2, task.Operation)
-		if err != nil {
-			log.Printf("Error during computation: %v", err)
-			continue
-		}
-
-		log.Printf("Computation result for task %s: %.2f", task.ID, result)
-
-		time.Sleep(time.Duration(task.OperationTime) * time.Millisecond)
-
-		if err := sendResult(task.ID, result); err != nil {
-			log.Printf("Failed to send result for task %s: %v", task.ID, err)
-			continue
-		}
-
-		log.Printf("Result sent successfully for task %s", task.ID)
 	}
 }
 

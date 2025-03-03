@@ -180,8 +180,8 @@ go run ./cmd --all
 
 ## Тесты
 Репозитарий содержит тесты:
- - для http-сервера: `internal/application/application_test.go` 
- - для функции `Сalc` - `pkg/calculation/calculation_test.go`
+ - для агента: `internal/application/agent_test.go`
+ - для оркестратора: `internal/application/application_test.go`
 
 Запуск тестов:
 ```bash
@@ -194,22 +194,24 @@ go test -v ./...
 
 - Валидный запрос/ответ:
 ```bash
-curl --location 'localhost:8080/api/v1/calculate' --header 'Content-Type: application/json' --data '{ "expression": "2+2*2" }'
+curl --location 'localhost:8080/api/v1/calculate' --header 'Content-Type: application/json' --data '{"expression": "7 + (3 * 2)" }'
 ```
 ```JSON
-{"result":"6.000000"}
+{"id":"здесь будет идентификатор (например: 1741030482149934200-6)"}
 ```
-- Невалидный запрос/ответ:
+- Невалидный запрос/ответ, статус ответа:
 ```bash
-curl --location 'localhost:8080/api/v1/calculate' --header 'Content-Type: application/json' --data '{ "expression": "2+2*2/0" }'
+curl -o - -L -s -w "%{http_code}" --location 'localhost:8080/api/v1/calculate' --header 'Content-Type: application/json' --data '{ "expression": "a + b" }'
 ```
-```JSON
-{"error":"Expression is not valid"}
 ```
-- Неправильный метод HTTP запроса/ответ:
+invalid expression
+422
+```
+- Неправильный метод HTTP запроса/ответ, статус ответа:
 ```bash
-curl -X GET --location 'localhost:8080/api/v1/calculate' --header 'Content-Type: application/json' --data '{ "expression": "2+2*2" }'
+curl -o - -L -s -w "%{http_code}" -X GET --location 'localhost:8080/api/v1/calculate' --header 'Content-Type: application/json' --data '{ "expression": "2+2*2" }'
 ```
 ```
 Method not allowed
+405
 ```
