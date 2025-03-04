@@ -180,8 +180,14 @@ go run ./cmd --all
 
 ## Тесты
 Репозитарий содержит тесты:
- - для агента: `internal/agent/agent_test.go`
- - для оркестратора: `internal/application/application_test.go`
+ - для агента:
+   - `internal/agent/agent_test.go`
+ - для оркестратора:
+   - `internal/application/config_test.go`
+   - `internal/application/error_handling_test.go`
+   - `internal/application/evaluate_test.go`
+   - `internal/application/handlers_test.go`
+   - `internal/application/parser_test.go`
 
 Запуск тестов:
 ```bash
