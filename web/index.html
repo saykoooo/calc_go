@@ -58,6 +58,179 @@
             </tbody>
         </table>
     </div>
-
+    <script>
+        // порт из адреса страницы
+        function getServerPortFromURL() {
+            const port = window.location.port || "80";
+            return port;
+        }
+        
+        // базовый URL для API
+        const API_BASE_URL = `http://localhost:${getServerPortFromURL()}/api/v1`;
+        
+        // Загружаем выражения при старте приложения
+        window.addEventListener("load", async () => {
+            try {
+                // есть ли данные в localStorage?
+                let expressions = loadExpressionsFromLocalStorage();
+        
+                // если нет данных в localStorage - загружаем
+                if (expressions.length === 0) {
+                    const response = await fetch(`${API_BASE_URL}/expressions`);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(
+                            `Failed to fetch expressions. Status: ${response.status} ${response.statusText}.`
+                        );
+                    }
+        
+                    const data = await response.json();
+                    expressions = data.expressions.map(expr => ({
+                        id: expr.id,
+                        expression: expr.expression,
+                        status: expr.status,
+                        result: expr.result || "-"
+                    }));
+        
+                    // сохраняем в localStorage
+                    saveExpressionsToLocalStorage(expressions);
+                }
+        
+                // добавляем в таблицу
+                expressions.forEach(expr => addExpressionToTable(expr.id, expr.expression, expr.status, expr.result));
+            } catch (error) {
+                console.error("Error fetching or loading expressions:", error);
+                showError(error.message);
+            }
+        });
+        
+        // отправка на сервер
+        document.getElementById("expressionForm").addEventListener("submit", async function (event) {
+            event.preventDefault();
+            const expressionInput = document.getElementById("expression");
+            const expression = expressionInput.value.trim();
+        
+            if (!expression) {
+                alert("Пожалуйста, введите выражение.");
+                return;
+            }
+        
+            try {
+                const response = await fetch(`${API_BASE_URL}/calculate`, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ expression })
+                });
+        
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(
+                        `Ошибка получения выражения: ${response.status} (${response.statusText}).`
+                    );
+                }
+        
+                const data = await response.json();
+                const exprId = data.id;
+        
+                // добавляем выражение в таблицу и localStorage
+                addExpressionToTable(exprId, expression, "processing", "-");
+        
+                // обновляем список в ЛС
+                const expressions = loadExpressionsFromLocalStorage();
+                expressions.push({ id: exprId, expression, status: "processing", result: "-" });
+                saveExpressionsToLocalStorage(expressions);
+        
+                expressionInput.value = "";
+            } catch (error) {
+                console.error("Ошибка отправки выражения:", error);
+                showError(error.message);
+            }
+        });
+        
+        // сохранение выражений в ls
+        function saveExpressionsToLocalStorage(expressions) {
+            localStorage.setItem("expressions", JSON.stringify(expressions));
+        }
+        
+        // загрузка выражений из ls
+        function loadExpressionsFromLocalStorage() {
+            const storedExpressions = localStorage.getItem("expressions");
+            return storedExpressions ? JSON.parse(storedExpressions) : [];
+        }
+        
+        // добавление выражения в таблицу
+        function addExpressionToTable(id, expression, status, result) {
+            const tbody = document.querySelector("#expressionsTable tbody");
+            const row = document.createElement("tr");
+        
+            row.innerHTML = `
+                <td>${id}</td>
+                <td>${expression}</td>
+                <td>${status}</td>
+                <td>${result || "-"}</td>
+            `;
+        
+            tbody.appendChild(row);
+        
+            updateExpressionStatus(id);
+        }
+        
+        // обновление статуса выражения
+        async function updateExpressionStatus(exprId) {
+            const intervalId = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/expression/${exprId}`);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        console.error(
+                            `Ошибка обновления статуса выражения ${exprId}. Код: ${response.status} (${response.statusText}).`
+                        );
+                        clearInterval(intervalId);
+                        return;
+                    }
+        
+                    const data = await response.json();
+                    const status = data.expression.status;
+                    const result = data.expression.result;
+        
+                    // строка по id
+                    const rows = document.querySelectorAll("#expressionsTable tbody tr");
+                    let targetRow = null;
+        
+                    rows.forEach(row => {
+                        if (row.cells[0].textContent === exprId) {
+                            targetRow = row;
+                        }
+                    });
+        
+                    if (targetRow) {
+                        targetRow.cells[2].textContent = status;
+                        targetRow.cells[3].textContent = result || "-";
+                    }
+        
+                    // обновляем данные в localstorage
+                    const expressions = loadExpressionsFromLocalStorage();
+                    const updatedExpressions = expressions.map(expr =>
+                        expr.id === exprId ? { ...expr, status, result } : expr
+                    );
+                    saveExpressionsToLocalStorage(updatedExpressions);
+        
+                    if (status === "done" || status === "error") {
+                        clearInterval(intervalId);
+                    }
+                } catch (error) {
+                    console.error(`Expression: ${exprId} - Error:`, error);
+                    clearInterval(intervalId);
+                }
+            }, 2000); // интервал каждые 2 секунды
+        }
+        
+        // показ ошибки
+        function showError(message) {
+            alert(`Error: ${message}`);
+        }
+    </script>
 </body>
 </html>
