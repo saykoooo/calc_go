@@ -335,6 +335,8 @@ func GetExpressionByIdHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *Application) RunServer() error {
 	mux := http.NewServeMux()
+	fs := http.FileServer(http.Dir("web/"))
+	mux.Handle("/web/", http.StripPrefix("/web/", fs))
 	mux.Handle("/", LoggingMiddleware(http.HandlerFunc(NotFoundHandler)))
 	mux.Handle("/api/v1/calculate", LoggingMiddleware(http.HandlerFunc(CalcHandler)))
 	mux.Handle("/api/v1/expressions", LoggingMiddleware(http.HandlerFunc(GetExpressionsHandler)))
