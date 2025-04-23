@@ -317,7 +317,7 @@ func (a *Application) RunServer() error {
 	mux.Handle("/", LoggingMiddleware(http.HandlerFunc(NotFoundHandler)))
 	mux.Handle("/api/v1/calculate", LoggingMiddleware(http.HandlerFunc(CalcHandler)))
 	mux.Handle("/api/v1/expressions", LoggingMiddleware(http.HandlerFunc(GetExpressionsHandler)))
-	mux.Handle("/api/v1/expression/{id}", LoggingMiddleware(http.HandlerFunc(GetExpressionByIdHandler)))
+	mux.Handle("/api/v1/expressions/{id}", LoggingMiddleware(http.HandlerFunc(GetExpressionByIdHandler)))
 	mux.Handle("GET /internal/task", LoggingMiddleware(http.HandlerFunc(a.GetTaskHandler)))
 	mux.Handle("POST /internal/task", LoggingMiddleware(http.HandlerFunc(PostTaskHandler)))
 	log.Printf("Web server run on port: %s\n", a.config.Addr)

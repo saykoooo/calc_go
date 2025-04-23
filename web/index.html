@@ -181,7 +181,7 @@
         async function updateExpressionStatus(exprId) {
             const intervalId = setInterval(async () => {
                 try {
-                    const response = await fetch(`${API_BASE_URL}/expression/${exprId}`);
+                    const response = await fetch(`${API_BASE_URL}/expressions/${exprId}`);
                     if (!response.ok) {
                         const errorData = await response.json().catch(() => ({}));
                         console.error(
