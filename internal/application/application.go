@@ -164,6 +164,36 @@ func (a *Application) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func RegisterHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("Invalid request body: %v", err)
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	log.Printf("Registration request body: {login:%s, password:%s}", req.Login, req.Password)
+	//TODO: process registeration
+	w.WriteHeader(http.StatusOK)
+}
+
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Login    string `json:"login"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("Invalid request body: %v", err)
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	log.Printf("Login request body: {login:%s, password:%s}", req.Login, req.Password)
+	//TODO: process login
+	w.WriteHeader(http.StatusOK)
+}
+
 func PostTaskHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID     string  `json:"id"`
@@ -320,6 +350,8 @@ func (a *Application) RunServer() error {
 	mux.Handle("/api/v1/expressions/{id}", LoggingMiddleware(http.HandlerFunc(GetExpressionByIdHandler)))
 	mux.Handle("GET /internal/task", LoggingMiddleware(http.HandlerFunc(a.GetTaskHandler)))
 	mux.Handle("POST /internal/task", LoggingMiddleware(http.HandlerFunc(PostTaskHandler)))
+	mux.Handle("POST /api/v1/register", LoggingMiddleware(http.HandlerFunc(RegisterHandler)))
+	mux.Handle("POST /api/v1/login", LoggingMiddleware(http.HandlerFunc(LoginHandler)))
 	log.Printf("Web server run on port: %s\n", a.config.Addr)
 	return http.ListenAndServe(":"+a.config.Addr, mux)
 }
