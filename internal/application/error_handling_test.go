@@ -1,21 +1,19 @@
 package application
 
 import (
+	"github.com/saykoooo/calc_go/internal/calc"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func TestDivisionByZero(t *testing.T) {
-	// Убрать блокировку здесь
-	// mu.Lock()
-	// defer mu.Unlock()
 	clearState()
 
 	// Setup test data
-	num1 := &Node{ID: "1", Type: "number", Status: "done", Result: 5}
-	num2 := &Node{ID: "2", Type: "number", Status: "done", Result: 0}
-	opNode := &Node{
+	num1 := &calc.Node{ID: "1", Type: "number", Status: "done", Result: 5}
+	num2 := &calc.Node{ID: "2", Type: "number", Status: "done", Result: 0}
+	opNode := &calc.Node{
 		ID:        "3",
 		Type:      "operation",
 		Operation: "/",

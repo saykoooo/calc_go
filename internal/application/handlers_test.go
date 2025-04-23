@@ -6,11 +6,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/saykoooo/calc_go/internal/calc"
 )
 
 func TestCalcHandler_Success(t *testing.T) {
-	// mu.Lock()
-	// defer mu.Unlock()
 	clearState()
 
 	reqBody := `{"expression": "2 + 3 * 4"}`
@@ -36,9 +36,9 @@ func TestCalcHandler_Success(t *testing.T) {
 func TestGetTaskHandler_WithTask(t *testing.T) {
 	clearState()
 
-	num1 := &Node{ID: "1", Type: "number", Status: "done", Result: 2}
-	num2 := &Node{ID: "2", Type: "number", Status: "done", Result: 3}
-	opNode := &Node{
+	num1 := &calc.Node{ID: "1", Type: "number", Status: "done", Result: 2}
+	num2 := &calc.Node{ID: "2", Type: "number", Status: "done", Result: 3}
+	opNode := &calc.Node{
 		ID:        "3",
 		Type:      "operation",
 		Operation: "+",
@@ -78,7 +78,7 @@ func TestPostTaskHandler_Success(t *testing.T) {
 
 	mu.Lock()
 	expr := &Expression{ID: "e1", RootNodeID: "1", Status: "processing"}
-	node := &Node{ID: "1", ExprID: "e1", Type: "operation", Status: "in_progress"}
+	node := &calc.Node{ID: "1", ExprID: "e1", Type: "operation", Status: "in_progress"}
 	expressions[expr.ID] = expr
 	nodes[node.ID] = node
 	mu.Unlock()
@@ -106,6 +106,5 @@ func clearState() {
 	mu.Lock()
 	defer mu.Unlock()
 	expressions = make(map[string]*Expression)
-	nodes = make(map[string]*Node)
-	idCounter = 0
+	nodes = make(map[string]*calc.Node)
 }
