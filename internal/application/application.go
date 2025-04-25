@@ -2,18 +2,24 @@ package application
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/saykoooo/calc_go/internal/calc"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Config struct {
 	Addr               string
+	JwtSecret          string
+	JwtExpiration      time.Duration
 	TimeAddition       time.Duration
 	TimeSubtraction    time.Duration
 	TimeMultiplication time.Duration
@@ -46,6 +52,11 @@ func ConfigFromEnv() *Config {
 		log.Println("Missing PORT environment variable. Using default value: 8080")
 		config.Addr = "8080"
 	}
+	config.JwtSecret = os.Getenv("JWT_SECRET")
+	if config.JwtSecret == "" {
+		config.JwtSecret = "dumbSecretForLaziest"
+	}
+	config.JwtExpiration = 5 * time.Minute
 	config.TimeAddition = getEnvDuration("TIME_ADDITION_MS", 1000)
 	config.TimeSubtraction = getEnvDuration("TIME_SUBTRACTION_MS", 1000)
 	config.TimeMultiplication = getEnvDuration("TIME_MULTIPLICATION_MS", 1000)
@@ -83,6 +94,41 @@ type Request struct {
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("%s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (a *Application) AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearer, err := ExtractToken(r)
+		if err != nil {
+			log.Println(err.Error())
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		log.Printf("Got bearer: %s", bearer)
+
+		tokenFromString, err := jwt.Parse(bearer, func(token *jwt.Token) (interface{}, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
+			return []byte(a.config.JwtSecret), nil
+		})
+		if err != nil {
+			log.Println(err)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		claims, ok := tokenFromString.Claims.(jwt.MapClaims)
+		if ok {
+			log.Println("Request from user: ", claims["name"])
+		} else {
+			log.Println("invalid jwt token")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		r.Header.Set("username", claims["name"].(string))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -179,7 +225,17 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func LoginHandler(w http.ResponseWriter, r *http.Request) {
+func ExtractToken(req *http.Request) (string, error) {
+	tokenHeader := req.Header.Get("Authorization")
+	// The usual convention is for "Bearer" to be title-cased. However, there's no
+	// strict rule around this, and it's best to follow the robustness principle here.
+	if len(tokenHeader) < 7 || !strings.EqualFold(tokenHeader[:7], "bearer ") {
+		return "", fmt.Errorf("Invalid authorization header")
+	}
+	return tokenHeader[7:], nil
+}
+
+func (a *Application) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Login    string `json:"login"`
 		Password string `json:"password"`
@@ -189,8 +245,35 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
+
+	now := time.Now()
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"name": req.Login,
+		"nbf":  now.Unix(),
+		"exp":  now.Add(a.config.JwtExpiration).Unix(),
+		"iat":  now.Unix(),
+	})
+	tokenString, err := token.SignedString([]byte(a.config.JwtSecret))
+	if err != nil {
+		log.Printf("Error while generating token string: %s", err)
+		http.Error(w, "Error while generating token string", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("Token string: %s", tokenString)
+
+	cookie := &http.Cookie{
+		Name:     "accessToken",
+		Value:    tokenString,
+		MaxAge:   int(a.config.JwtExpiration.Seconds()),
+		Path:     "/",
+		HttpOnly: true,                    // Доступ только через HTTP, защита от XSS
+		Secure:   false,                   // Только HTTPS
+		SameSite: http.SameSiteStrictMode, // Защита от CSRF
+	}
+	http.SetCookie(w, cookie)
+
 	log.Printf("Login request body: {login:%s, password:%s}", req.Login, req.Password)
-	//TODO: process login
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -256,7 +339,8 @@ func CalcHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid expression", http.StatusUnprocessableEntity)
 		return
 	}
-
+	user := r.Header.Get("username")
+	log.Printf("Calculate expression for user: %s", user)
 	exprID := calc.GenerateID()
 	mu.Lock()
 	defer mu.Unlock()
@@ -345,13 +429,13 @@ func (a *Application) RunServer() error {
 	fs := http.FileServer(http.Dir("web/"))
 	mux.Handle("/web/", http.StripPrefix("/web/", fs))
 	mux.Handle("/", LoggingMiddleware(http.HandlerFunc(NotFoundHandler)))
-	mux.Handle("/api/v1/calculate", LoggingMiddleware(http.HandlerFunc(CalcHandler)))
-	mux.Handle("/api/v1/expressions", LoggingMiddleware(http.HandlerFunc(GetExpressionsHandler)))
-	mux.Handle("/api/v1/expressions/{id}", LoggingMiddleware(http.HandlerFunc(GetExpressionByIdHandler)))
+	mux.Handle("/api/v1/calculate", LoggingMiddleware(a.AuthMiddleware(http.HandlerFunc(CalcHandler))))
+	mux.Handle("/api/v1/expressions", LoggingMiddleware(a.AuthMiddleware(http.HandlerFunc(GetExpressionsHandler))))
+	mux.Handle("/api/v1/expressions/{id}", LoggingMiddleware(a.AuthMiddleware(http.HandlerFunc(GetExpressionByIdHandler))))
 	mux.Handle("GET /internal/task", LoggingMiddleware(http.HandlerFunc(a.GetTaskHandler)))
 	mux.Handle("POST /internal/task", LoggingMiddleware(http.HandlerFunc(PostTaskHandler)))
 	mux.Handle("POST /api/v1/register", LoggingMiddleware(http.HandlerFunc(RegisterHandler)))
-	mux.Handle("POST /api/v1/login", LoggingMiddleware(http.HandlerFunc(LoginHandler)))
+	mux.Handle("POST /api/v1/login", LoggingMiddleware(http.HandlerFunc(a.LoginHandler)))
 	log.Printf("Web server run on port: %s\n", a.config.Addr)
 	return http.ListenAndServe(":"+a.config.Addr, mux)
 }
