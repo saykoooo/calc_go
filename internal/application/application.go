@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/saykoooo/calc_go/internal/calc"
+	"github.com/saykoooo/calc_go/internal/db"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -220,15 +221,36 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	log.Printf("Registration request body: {login:%s, password:%s}", req.Login, req.Password)
-	//TODO: process registeration
+	log.Printf("Got registration request from: %s", req.Login)
+	password, err := db.GenerateHash(req.Password)
+	if err != nil {
+		log.Printf("Error while generating hash: %v", err)
+		http.Error(w, "Error while generating hash", http.StatusInternalServerError)
+		return
+	}
+	user := &db.User{
+		Name:           req.Login,
+		Password:       password,
+		OriginPassword: req.Password,
+	}
+	userID, err := db.InsertUser(user)
+	if err != nil {
+		log.Printf("Error while registering user: %s", req.Login)
+		http.Error(w, "Error while registering user", http.StatusInternalServerError)
+		return
+	} else if userID == 0 {
+		log.Printf("User already exists: %s", req.Login)
+		http.Error(w, "User already exists", http.StatusBadRequest)
+		return
+	} else {
+		user.ID = userID
+		log.Printf("User registered: %s (id:%v)", req.Login, user.ID)
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
 func ExtractToken(req *http.Request) (string, error) {
 	tokenHeader := req.Header.Get("Authorization")
-	// The usual convention is for "Bearer" to be title-cased. However, there's no
-	// strict rule around this, and it's best to follow the robustness principle here.
 	if len(tokenHeader) < 7 || !strings.EqualFold(tokenHeader[:7], "bearer ") {
 		return "", fmt.Errorf("Invalid authorization header")
 	}
@@ -246,6 +268,28 @@ func (a *Application) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userFromDB, err := db.SelectUser(req.Login)
+	if err != nil {
+		log.Printf("Error while getting user %s: %v", req.Login, err)
+		http.Error(w, "Auth failed", http.StatusUnauthorized)
+		return
+	}
+	password, err := db.GenerateHash(req.Password)
+	if err != nil {
+		log.Printf("Error while generating hash: %v", err)
+		http.Error(w, "Error while generating hash", http.StatusInternalServerError)
+		return
+	}
+	user := &db.User{
+		Name:           req.Login,
+		Password:       password,
+		OriginPassword: req.Password,
+	}
+	if ok := user.ComparePassword(userFromDB); ok != nil {
+		log.Printf("Auth failed: %s", user.Name)
+		http.Error(w, "Auth failed", http.StatusUnauthorized)
+		return
+	}
 	now := time.Now()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"name": req.Login,
@@ -271,9 +315,6 @@ func (a *Application) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteStrictMode, // Защита от CSRF
 	}
 	http.SetCookie(w, cookie)
-
-	log.Printf("Login request body: {login:%s, password:%s}", req.Login, req.Password)
-
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -437,5 +478,10 @@ func (a *Application) RunServer() error {
 	mux.Handle("POST /api/v1/register", LoggingMiddleware(http.HandlerFunc(RegisterHandler)))
 	mux.Handle("POST /api/v1/login", LoggingMiddleware(http.HandlerFunc(a.LoginHandler)))
 	log.Printf("Web server run on port: %s\n", a.config.Addr)
+	err := db.Init()
+	if err != nil {
+		log.Panicln(err)
+	}
+	defer db.Stop()
 	return http.ListenAndServe(":"+a.config.Addr, mux)
 }
