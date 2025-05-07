@@ -139,50 +139,38 @@ func (a *Application) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
 	defer mu.Unlock()
 
 	log.Println("Searching for tasks...")
-	var task *calc.Node
-	for _, node := range nodes {
-		if node.Type == "operation" && node.Status == "pending" {
-			left, existsLeft := nodes[node.Left]
-			right, existsRight := nodes[node.Right]
-
-			if existsLeft && existsRight && left.Status == "done" && right.Status == "done" {
-				task = node
-				break
-			}
-		}
-	}
-
-	if task == nil {
+	task, err := db.SelectNodeAsTask()
+	if task.ID == "" {
 		log.Println("No pending tasks available")
 		http.Error(w, "no task", http.StatusNotFound)
 		return
 	}
-
-	log.Printf("Found task with ID %s: %s %f %s %f", task.ID, task.Operation, nodes[task.Left].Result, task.Operation, nodes[task.Right].Result)
-
-	left, existsLeft := nodes[task.Left]
-	right, existsRight := nodes[task.Right]
-
-	if !existsLeft || !existsRight {
-		log.Printf("Invalid node reference for task %s", task.ID)
-		http.Error(w, "invalid node reference", http.StatusInternalServerError)
+	if err != nil {
+		log.Printf("Error while getting task from db")
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	arg1 := left.Result
-	arg2 := right.Result
-
-	if task.Operation == "/" && arg2 == 0 {
+	if task.Oper == "/" && task.Arg1 == 0 {
 		log.Printf("Division by zero in task %s", task.ID)
-		task.Status = "error"
-		expr := expressions[task.ExprID]
-		expr.Status = "error"
+		err = db.SetNodeStatus(task.ID, "error")
+		if err != nil {
+			log.Printf("Error changing status for node %s", task.ID)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		//TODO: remove dead nodes
+		err = db.SetExpressionStatus(task.ExprID, "error")
+		if err != nil {
+			log.Printf("Error changing status for expression %s", task.ExprID)
+		}
+		log.Printf("Task %s contains division by zero", task.ID)
 		http.Error(w, "division by zero", http.StatusInternalServerError)
 		return
 	}
 
 	var opTime time.Duration
-	switch task.Operation {
+	switch task.Oper {
 	case "+":
 		opTime = a.config.TimeAddition
 	case "-":
@@ -192,20 +180,25 @@ func (a *Application) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
 	case "/":
 		opTime = a.config.TimeDivision
 	default:
-		log.Printf("Invalid operation %s in task %s", task.Operation, task.ID)
+		log.Printf("Invalid operation %s in task %s", task.Oper, task.ID)
 		http.Error(w, "invalid operation", http.StatusInternalServerError)
 		return
 	}
 
-	task.Status = "in_progress"
+	err = db.SetNodeStatus(task.ID, "in_progress")
+	if err != nil {
+		log.Printf("Error changing status for node %s", task.ID)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 	log.Printf("Task %s marked as in_progress", task.ID)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"task": map[string]interface{}{
 			"id":             task.ID,
-			"arg1":           arg1,
-			"arg2":           arg2,
-			"operation":      task.Operation,
+			"arg1":           task.Arg1,
+			"arg2":           task.Arg2,
+			"operation":      task.Oper,
 			"operation_time": opTime.Milliseconds(),
 		},
 	})
@@ -333,22 +326,40 @@ func PostTaskHandler(w http.ResponseWriter, r *http.Request) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	node, exists := nodes[req.ID]
-	if !exists {
-		log.Printf("Task with ID %s not found", req.ID)
-		http.Error(w, "task not found", http.StatusNotFound)
+	err := db.SetNodeResult(req.ID, req.Result)
+	if err != nil {
+		log.Printf("Error setting result for node %s", req.ID)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	log.Printf("Task %s completed with result %f", req.ID, req.Result)
+
+	node, err := db.SelectNode(req.ID)
+	if err != nil {
+		log.Printf("Error getting node %s", req.ID)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	node.Result = req.Result
-	node.Status = "done"
-	log.Printf("Task %s completed with result %f", req.ID, req.Result)
+	expr, err := db.SelectExpression(node.ExprID)
+	if err != nil {
+		log.Printf("Error getting expression %s", node.ExprID)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
-	expr := expressions[node.ExprID]
 	if node.ID == expr.RootNodeID {
-		expr.Result = req.Result
-		expr.Status = "done"
-		log.Printf("Expression %s completed with result %f", expr.ID, req.Result)
+		err = db.SetExpressionResult(expr.ExprID, req.Result)
+		if err != nil {
+			log.Printf("Error setting result for expression %s", expr.ExprID)
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("Expression %s completed with result %f", expr.ExprID, req.Result)
+		err := db.DeleteNodes(expr.ExprID)
+		if err != nil {
+			log.Printf("Error deleting used nodes for expr: %s", expr.ExprID)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -368,40 +379,55 @@ func CalcHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	user := r.Header.Get("username")
+
 	err := json.NewDecoder(r.Body).Decode(&request)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
+
 	root, result, err := calc.ParseExpression(request.Expression)
 	if err != nil {
 		log.Printf("Error parsing expression: %v", err)
 		http.Error(w, "invalid expression", http.StatusUnprocessableEntity)
 		return
 	}
-	user := r.Header.Get("username")
+
 	log.Printf("Calculate expression for user: %s", user)
 	exprID := calc.GenerateID()
 	mu.Lock()
 	defer mu.Unlock()
 
-	expressions[exprID] = &Expression{
-		ID:         exprID,
+	expr := db.Expression{
+		ExprID:     exprID,
+		Username:   user,
 		Status:     "processing",
 		RootNodeID: root.ID,
 	}
+	expr_num, err := db.InsertExpression(expr)
+	if err != nil {
+		log.Printf("Error adding expression to db: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 
-	for _, n := range result {
-		n.ExprID = exprID
-		nodes[n.ID] = n
+	for i := range result {
+		result[i].ExprID = exprID
 	}
-	log.Println("Nodes after saving:")
-	for _, n := range nodes {
-		log.Printf("Node ID: %s, Type: %s, Status: %s, Left: %s, Right: %s", n.ID, n.Type, n.Status, n.Left, n.Right)
+
+	num, err := db.InsertNodes(result)
+	if err != nil {
+		log.Printf("Error saving nodes to db: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
+
 	log.Printf("Expression with ID %s created and processing started", exprID)
 
+	log.Printf("Nodes added: %d / Expr added: %d", num, expr_num)
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"id": exprID})
 }
@@ -416,9 +442,16 @@ func GetExpressionsHandler(w http.ResponseWriter, r *http.Request) {
 		Expressions: make([]ExpressionStatus, 0, len(expressions)),
 	}
 
-	for _, expr := range expressions {
+	user := r.Header.Get("username")
+
+	exprs, err := db.SelectExpressionsByUser(user)
+	if err != nil {
+		log.Printf("Error while getting expressions: %v", err)
+	}
+
+	for _, expr := range exprs {
 		response.Expressions = append(response.Expressions, ExpressionStatus{
-			ID:     expr.ID,
+			ID:     expr.ExprID,
 			Status: expr.Status,
 			Result: expr.Result,
 		})
@@ -439,19 +472,24 @@ func GetExpressionByIdHandler(w http.ResponseWriter, r *http.Request) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	expr, exists := expressions[id]
-	if !exists {
-		log.Printf("Expression with ID %s not found", id)
-		http.Error(w, "expression not found", http.StatusNotFound)
+	expr, err := db.SelectExpression(id)
+	if err != nil {
+		log.Printf("Error while getting expression (%s): %v", id, err)
+		http.Error(w, "Expression not found", http.StatusNotFound)
 		return
 	}
-
+	user := r.Header.Get("username")
+	if user != expr.Username {
+		log.Printf("Invalid username: %s, expect: %s", user, expr.Username)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	log.Printf("Returning expression with ID %s", id)
 	response := struct {
 		Expression ExpressionStatus `json:"expression"`
 	}{
 		Expression: ExpressionStatus{
-			ID:     expr.ID,
+			ID:     expr.ExprID,
 			Status: expr.Status,
 			Result: expr.Result,
 		},

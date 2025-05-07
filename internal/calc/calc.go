@@ -20,13 +20,11 @@ type Node struct {
 	ID        string
 	ExprID    string
 	Type      string
-	Value     float64
 	Left      string
 	Right     string
 	Operation string
 	Status    string
 	Result    float64
-	Parents   []string
 }
 
 var (
@@ -150,7 +148,6 @@ func evaluate(rp []Token) (*Node, []*Node, error) {
 			node := &Node{
 				ID:     GenerateID(),
 				Type:   "number",
-				Value:  token.Num,
 				Status: "done",
 				Result: token.Num,
 			}
@@ -172,11 +169,7 @@ func evaluate(rp []Token) (*Node, []*Node, error) {
 				Left:      left.ID,
 				Right:     right.ID,
 				Status:    "pending",
-				Parents:   []string{},
 			}
-
-			left.Parents = append(left.Parents, node.ID)
-			right.Parents = append(right.Parents, node.ID)
 
 			stack = append(stack, node)
 			allNodes = append(allNodes, node)

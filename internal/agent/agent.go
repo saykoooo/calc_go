@@ -37,7 +37,7 @@ func RunAgent() {
 		computingPower = 1
 	}
 
-	log.Printf("Starting %d worker threads", computingPower)
+	log.Printf("Agent: Starting %d worker threads", computingPower)
 
 	wg.Add(computingPower)
 	for i := 0; i < computingPower; i++ {
@@ -45,7 +45,7 @@ func RunAgent() {
 	}
 
 	<-shutdownCh
-	log.Println("Shutting down agent...")
+	log.Println("Agent: Shutting down agent...")
 	wg.Wait()
 }
 
@@ -58,26 +58,26 @@ func worker() {
 		default:
 			task, err := getTask()
 			if err != nil {
-				log.Printf("Failed to get task: %v. Retrying in 1 second...", err)
+				log.Printf("Agent: Failed to get task: %v. Retrying in 1 second...", err)
 				time.Sleep(1 * time.Second)
 				continue
 			}
 
-			log.Printf("Received task: ID=%s, Operation=%s, Arg1=%.2f, Arg2=%.2f",
+			log.Printf("Agent: Received task: ID=%s, Operation=%s, Arg1=%.2f, Arg2=%.2f",
 				task.ID, task.Operation, task.Arg1, task.Arg2)
 
 			result, err := compute(task.Arg1, task.Arg2, task.Operation)
 			if err != nil {
-				log.Printf("Error during computation: %v", err)
+				log.Printf("Agent: Error during computation: %v", err)
 				continue
 			}
 
-			log.Printf("Computation result for task %s: %.2f", task.ID, result)
+			log.Printf("Agent: Computation result for task %s: %.2f", task.ID, result)
 
 			time.Sleep(time.Duration(task.OperationTime) * time.Millisecond)
 
 			if err := sendResult(task.ID, result); err != nil {
-				log.Printf("Failed to send result for task %s: %v", task.ID, err)
+				log.Printf("Agent: Failed to send result for task %s: %v", task.ID, err)
 			}
 		}
 	}
@@ -93,6 +93,10 @@ func getTask() (*Task, error) {
 		return nil, fmt.Errorf("failed to fetch task: %v", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("No task available")
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
