@@ -35,9 +35,10 @@ type Expression struct {
 }
 
 type ExpressionStatus struct {
-	ID     string  `json:"id"`
-	Status string  `json:"status"`
-	Result float64 `json:"result"`
+	ID         string  `json:"id"`
+	Status     string  `json:"status"`
+	Result     float64 `json:"result"`
+	Expression string  `json:"expression"`
 }
 
 var (
@@ -251,6 +252,66 @@ func ExtractToken(req *http.Request) (string, error) {
 	return tokenHeader[7:], nil
 }
 
+// func (a *Application) LoginHandler(w http.ResponseWriter, r *http.Request) {
+// 	var req struct {
+// 		Login    string `json:"login"`
+// 		Password string `json:"password"`
+// 	}
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		log.Printf("Invalid request body: %v", err)
+// 		http.Error(w, "invalid request", http.StatusBadRequest)
+// 		return
+// 	}
+// 	userFromDB, err := db.SelectUser(req.Login)
+// 	if err != nil {
+// 		log.Printf("Error while getting user %s: %v", req.Login, err)
+// 		http.Error(w, "Auth failed", http.StatusUnauthorized)
+// 		return
+// 	}
+// 	password, err := db.GenerateHash(req.Password)
+// 	if err != nil {
+// 		log.Printf("Error while generating hash: %v", err)
+// 		http.Error(w, "Error while generating hash", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	user := &db.User{
+// 		Name:           req.Login,
+// 		Password:       password,
+// 		OriginPassword: req.Password,
+// 	}
+// 	if ok := user.ComparePassword(userFromDB); ok != nil {
+// 		log.Printf("Auth failed: %s", user.Name)
+// 		http.Error(w, "Auth failed", http.StatusUnauthorized)
+// 		return
+// 	}
+// 	now := time.Now()
+// 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+// 		"name": req.Login,
+// 		"nbf":  now.Unix(),
+// 		"exp":  now.Add(a.config.JwtExpiration).Unix(),
+// 		"iat":  now.Unix(),
+// 	})
+// 	tokenString, err := token.SignedString([]byte(a.config.JwtSecret))
+// 	if err != nil {
+// 		log.Printf("Error while generating token string: %s", err)
+// 		http.Error(w, "Error while generating token string", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	log.Printf("Token string: %s", tokenString)
+//		cookie := &http.Cookie{
+//			Name:     "accessToken",
+//			Value:    tokenString,
+//			MaxAge:   int(a.config.JwtExpiration.Seconds()),
+//			Path:     "/",
+//			HttpOnly: true,                  // Доступ только через HTTP, защита от XSS
+//			Secure:   false,                 // Только HTTPS
+//			SameSite: http.SameSiteNoneMode, // Защита от CSRF
+//			// SameSite: http.SameSiteStrictMode, // Защита от CSRF
+//		}
+//		http.SetCookie(w, cookie)
+//		w.WriteHeader(http.StatusOK)
+//	}
+
 func (a *Application) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Login    string `json:"login"`
@@ -297,19 +358,13 @@ func (a *Application) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error while generating token string", http.StatusInternalServerError)
 		return
 	}
-	log.Printf("Token string: %s", tokenString)
+	log.Printf("Token generated for user: %s", req.Login)
 
-	cookie := &http.Cookie{
-		Name:     "accessToken",
-		Value:    tokenString,
-		MaxAge:   int(a.config.JwtExpiration.Seconds()),
-		Path:     "/",
-		HttpOnly: true,                    // Доступ только через HTTP, защита от XSS
-		Secure:   false,                   // Только HTTPS
-		SameSite: http.SameSiteStrictMode, // Защита от CSRF
-	}
-	http.SetCookie(w, cookie)
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"token":      tokenString,
+		"expires_in": strconv.FormatInt(int64(a.config.JwtExpiration.Seconds()), 10),
+	})
 }
 
 func PostTaskHandler(w http.ResponseWriter, r *http.Request) {
@@ -407,6 +462,7 @@ func CalcHandler(w http.ResponseWriter, r *http.Request) {
 		Username:   user,
 		Status:     "processing",
 		RootNodeID: root.ID,
+		Expr:       request.Expression,
 	}
 	expr_num, err := db.InsertExpression(expr)
 	if err != nil {
@@ -452,14 +508,16 @@ func GetExpressionsHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, expr := range exprs {
 		response.Expressions = append(response.Expressions, ExpressionStatus{
-			ID:     expr.ExprID,
-			Status: expr.Status,
-			Result: expr.Result,
+			ID:         expr.ExprID,
+			Status:     expr.Status,
+			Result:     expr.Result,
+			Expression: expr.Expr,
 		})
 	}
 
 	log.Println("Returning list of expressions")
 	w.Header().Set("Content-Type", "application/json")
+	log.Println("Expressions: ", len(exprs))
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("Error encoding response: %v", err)
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
@@ -490,9 +548,10 @@ func GetExpressionByIdHandler(w http.ResponseWriter, r *http.Request) {
 		Expression ExpressionStatus `json:"expression"`
 	}{
 		Expression: ExpressionStatus{
-			ID:     expr.ExprID,
-			Status: expr.Status,
-			Result: expr.Result,
+			ID:         expr.ExprID,
+			Status:     expr.Status,
+			Result:     expr.Result,
+			Expression: expr.Expr,
 		},
 	}
 

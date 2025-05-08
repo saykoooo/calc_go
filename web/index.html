@@ -32,135 +32,322 @@
             padding: 10px;
             text-align: left;
         }
+        .auth-section {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .hidden {
+            display: none;
+        }
+        .user-info {
+            float: right;
+            margin-top: 10px;
+        }
+        .logout-btn {
+            padding: 5px 10px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <div id="userInfo" class="user-info hidden">
+            Вы вошли как: <span id="username"></span>
+            <button id="logoutBtn" class="logout-btn">Выйти</button>
+        </div>
+
         <h1>Калькулятор</h1>
 
-        <form id="expressionForm">
-            <label for="expression">Введите выражение (например 3+4*2):</label><br>
-            <input type="text" id="expression" name="expression" required><br>
-            <button type="submit">Вычислить</button>
-        </form>
+        <div id="authSection" class="auth-section">
+            <div id="loginFormContainer">
+                <h2>Вход</h2>
+                <form id="loginForm">
+                    <label for="login">Логин:</label>
+                    <input type="text" id="login" name="login" required>
+                    <label for="password">Пароль:</label>
+                    <input type="password" id="password" name="password" required>
+                    <button type="submit">Войти</button>
+                </form>
+                <p>Нет аккаунта? <a href="#" id="showRegister">Зарегистрироваться</a></p>
+            </div>
 
-        <h2>Статус вычислений</h2>
-        <table id="expressionsTable">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Выражение</th>
-                    <th>Статус</th>
-                    <th>Результат</th>
-                </tr>
-            </thead>
-            <tbody>
-            </tbody>
-        </table>
+            <div id="registerFormContainer" class="hidden">
+                <h2>Регистрация</h2>
+                <form id="registerForm">
+                    <label for="regLogin">Логин:</label>
+                    <input type="text" id="regLogin" name="login" required>
+                    <label for="regPassword">Пароль:</label>
+                    <input type="password" id="regPassword" name="password" required>
+                    <button type="submit">Зарегистрироваться</button>
+                </form>
+                <p>Уже есть аккаунт? <a href="#" id="showLogin">Войти</a></p>
+            </div>
+        </div>
+
+        <div id="calcSection" class="hidden">
+            <form id="expressionForm">
+                <label for="expression">Введите выражение (например 3+4*2):</label><br>
+                <input type="text" id="expression" name="expression" required><br>
+                <button type="submit">Вычислить</button>
+            </form>
+
+            <h2>Статус вычислений</h2>
+            <table id="expressionsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Выражение</th>
+                        <th>Статус</th>
+                        <th>Результат</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
     </div>
+
     <script>
-        // порт из адреса страницы
         function getServerPortFromURL() {
             const port = window.location.port || "80";
             return port;
         }
         
-        // базовый URL для API
         const API_BASE_URL = `http://localhost:${getServerPortFromURL()}/api/v1`;
+        let authToken = localStorage.getItem('authToken') || '';
+        let username = localStorage.getItem('username') || '';
         
-        // Загружаем выражения при старте приложения
+        // on load
         window.addEventListener("load", async () => {
-            try {
-                // есть ли данные в localStorage?
-                let expressions = loadExpressionsFromLocalStorage();
+            if (authToken) {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/expressions`, {
+                        headers: {
+                            'Authorization': `Bearer ${authToken}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        showCalcSection();
+                        loadExpressions();
+                        document.getElementById('username').textContent = username;
+                    } else {
+                        clearAuthData();
+                        showLoginForm();
+                    }
+                } catch (error) {
+                    console.error("Error checking auth:", error);
+                    clearAuthData();
+                    showLoginForm();
+                }
+            } else {
+                showLoginForm();
+            }
+            
+            setupEventListeners();
+        });
         
-                // если нет данных в localStorage - загружаем
-                if (expressions.length === 0) {
-                    const response = await fetch(`${API_BASE_URL}/expressions`);
+        function setupEventListeners() {
+            // login||reg form
+            document.getElementById('showRegister').addEventListener('click', (e) => {
+                e.preventDefault();
+                showRegisterForm();
+            });
+            
+            document.getElementById('showLogin').addEventListener('click', (e) => {
+                e.preventDefault();
+                showLoginForm();
+            });
+            
+            // login
+            document.getElementById('loginForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const login = document.getElementById('login').value;
+                const password = document.getElementById('password').value;
+                
+                try {
+                    const response = await fetch(`${API_BASE_URL}/login`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            login,
+                            password
+                        })
+                    });
+                    
                     if (!response.ok) {
                         const errorData = await response.json().catch(() => ({}));
                         throw new Error(
-                            `Failed to fetch expressions. Status: ${response.status} ${response.statusText}.`
+                            `Ошибка входа: ${response.status} (${response.statusText}).`
                         );
                     }
-        
+                    
                     const data = await response.json();
-                    expressions = data.expressions.map(expr => ({
-                        id: expr.id,
-                        expression: expr.expression,
-                        status: expr.status,
-                        result: expr.result || "-"
-                    }));
-        
-                    // сохраняем в localStorage
-                    saveExpressionsToLocalStorage(expressions);
+                    authToken = data.token;
+                    localStorage.setItem('authToken', authToken);
+                    localStorage.setItem('username', login);
+                    
+                    showCalcSection();
+                    document.getElementById('username').textContent = login;
+                    
+                    loadExpressions();
+                } catch (error) {
+                    console.error("Login error:", error);
+                    alert(error.message);
                 }
+            });
+            
+            // reg
+            document.getElementById('registerForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const login = document.getElementById('regLogin').value;
+                const password = document.getElementById('regPassword').value;
+                
+                try {
+                    const response = await fetch(`${API_BASE_URL}/register`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            login,
+                            password
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(
+                            `Ошибка регистрации: ${response.status} (${response.statusText}).`
+                        );
+                    }
+                    
+                    alert('Регистрация успешна! Теперь вы можете войти.');
+                    showLoginForm();
+                    document.getElementById('login').value = login;
+                    document.getElementById('password').value = '';
+                } catch (error) {
+                    console.error("Register error:", error);
+                    alert(error.message);
+                }
+            });
+            
+            // login
+            document.getElementById('logoutBtn').addEventListener('click', () => {
+                clearAuthData();
+                document.getElementById('authSection').classList.remove('hidden');
+                showLoginForm();
+                clearExpressionsTable();
+            });
+            
+            // calc form
+            document.getElementById("expressionForm").addEventListener("submit", async function (event) {
+                event.preventDefault();
+                const expressionInput = document.getElementById("expression");
+                const expression = expressionInput.value.trim();
+            
+                if (!expression) {
+                    alert("Пожалуйста, введите выражение.");
+                    return;
+                }
+            
+                try {
+                    const response = await fetch(`${API_BASE_URL}/calculate`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${authToken}`
+                        },
+                        body: JSON.stringify({ expression })
+                    });
+            
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(
+                            `Ошибка получения выражения: ${response.status} (${response.statusText}).`
+                        );
+                    }
+            
+                    const data = await response.json();
+                    const exprId = data.id;
+            
+                    addExpressionToTable(exprId, expression, "processing", "-");
+            
+                    expressionInput.value = "";
+                } catch (error) {
+                    console.error("Ошибка отправки выражения:", error);
+                    alert(error.message);
+                }
+            });
+        }
         
-                // добавляем в таблицу
-                expressions.forEach(expr => addExpressionToTable(expr.id, expr.expression, expr.status, expr.result));
-            } catch (error) {
-                console.error("Error fetching or loading expressions:", error);
-                showError(error.message);
-            }
-        });
+        function showLoginForm() {
+            document.getElementById('loginFormContainer').classList.remove('hidden');
+            document.getElementById('registerFormContainer').classList.add('hidden');
+            document.getElementById('calcSection').classList.add('hidden');
+            document.getElementById('userInfo').classList.add('hidden');
+        }
         
-        // отправка на сервер
-        document.getElementById("expressionForm").addEventListener("submit", async function (event) {
-            event.preventDefault();
-            const expressionInput = document.getElementById("expression");
-            const expression = expressionInput.value.trim();
+        function showRegisterForm() {
+            document.getElementById('loginFormContainer').classList.add('hidden');
+            document.getElementById('registerFormContainer').classList.remove('hidden');
+            document.getElementById('calcSection').classList.add('hidden');
+            document.getElementById('userInfo').classList.add('hidden');
+        }
         
-            if (!expression) {
-                alert("Пожалуйста, введите выражение.");
-                return;
-            }
+        function showCalcSection() {
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('calcSection').classList.remove('hidden');
+            document.getElementById('userInfo').classList.remove('hidden');
+        }
         
+        function clearAuthData() {
+            authToken = '';
+            localStorage.removeItem('authToken');
+        }
+        
+        function clearExpressionsTable() {
+            document.querySelector("#expressionsTable tbody").innerHTML = '';
+        }
+        
+        // get expr from server
+        async function loadExpressions() {
             try {
-                const response = await fetch(`${API_BASE_URL}/calculate`, {
-                    method: "POST",
+                const response = await fetch(`${API_BASE_URL}/expressions`, {
                     headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({ expression })
+                        'Authorization': `Bearer ${authToken}`
+                    }
                 });
-        
+                
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
                     throw new Error(
-                        `Ошибка получения выражения: ${response.status} (${response.statusText}).`
+                        `Failed to fetch expressions. Status: ${response.status} ${response.statusText}.`
                     );
                 }
         
                 const data = await response.json();
-                const exprId = data.id;
-        
-                // добавляем выражение в таблицу и localStorage
-                addExpressionToTable(exprId, expression, "processing", "-");
-        
-                // обновляем список в ЛС
-                const expressions = loadExpressionsFromLocalStorage();
-                expressions.push({ id: exprId, expression, status: "processing", result: "-" });
-                saveExpressionsToLocalStorage(expressions);
-        
-                expressionInput.value = "";
+                clearExpressionsTable();
+                
+                if (data.expressions && data.expressions.length > 0) {
+                    data.expressions.forEach(expr => {
+                        addExpressionToTable(expr.id, expr.expression, expr.status, expr.result || "-");
+                        
+                        // refresh
+                        if (expr.status === 'processing') {
+                            updateExpressionStatus(expr.id);
+                        }
+                    });
+                }
             } catch (error) {
-                console.error("Ошибка отправки выражения:", error);
-                showError(error.message);
+                console.error("Error fetching expressions:", error);
+                alert(error.message);
             }
-        });
-        
-        // сохранение выражений в ls
-        function saveExpressionsToLocalStorage(expressions) {
-            localStorage.setItem("expressions", JSON.stringify(expressions));
         }
         
-        // загрузка выражений из ls
-        function loadExpressionsFromLocalStorage() {
-            const storedExpressions = localStorage.getItem("expressions");
-            return storedExpressions ? JSON.parse(storedExpressions) : [];
-        }
-        
-        // добавление выражения в таблицу
         function addExpressionToTable(id, expression, status, result) {
             const tbody = document.querySelector("#expressionsTable tbody");
             const row = document.createElement("tr");
@@ -173,15 +360,17 @@
             `;
         
             tbody.appendChild(row);
-        
             updateExpressionStatus(id);
         }
         
-        // обновление статуса выражения
         async function updateExpressionStatus(exprId) {
             const intervalId = setInterval(async () => {
                 try {
-                    const response = await fetch(`${API_BASE_URL}/expressions/${exprId}`);
+                    const response = await fetch(`${API_BASE_URL}/expressions/${exprId}`, {
+                        headers: {
+                            'Authorization': `Bearer ${authToken}`
+                        }
+                    });
                     if (!response.ok) {
                         const errorData = await response.json().catch(() => ({}));
                         console.error(
@@ -195,7 +384,6 @@
                     const status = data.expression.status;
                     const result = data.expression.result;
         
-                    // строка по id
                     const rows = document.querySelectorAll("#expressionsTable tbody tr");
                     let targetRow = null;
         
@@ -210,13 +398,6 @@
                         targetRow.cells[3].textContent = result || "-";
                     }
         
-                    // обновляем данные в localstorage
-                    const expressions = loadExpressionsFromLocalStorage();
-                    const updatedExpressions = expressions.map(expr =>
-                        expr.id === exprId ? { ...expr, status, result } : expr
-                    );
-                    saveExpressionsToLocalStorage(updatedExpressions);
-        
                     if (status === "done" || status === "error") {
                         clearInterval(intervalId);
                     }
@@ -225,11 +406,6 @@
                     clearInterval(intervalId);
                 }
             }, 2000); // интервал каждые 2 секунды
-        }
-        
-        // показ ошибки
-        function showError(message) {
-            alert(`Error: ${message}`);
         }
     </script>
 </body>

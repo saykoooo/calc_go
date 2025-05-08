@@ -28,6 +28,7 @@ type Task struct {
 
 type Expression struct {
 	ExprID     string
+	Expr       string
 	Username   string
 	Status     string
 	RootNodeID string
@@ -85,6 +86,7 @@ func createTables(ctx context.Context, db *sql.DB) error {
 	const expressionTable = `
 	CREATE TABLE IF NOT EXISTS expressions(
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		expr TEXT,
 		expr_id TEXT,
 		username TEXT,
 		status TEXT,
@@ -101,12 +103,13 @@ func createTables(ctx context.Context, db *sql.DB) error {
 
 func InsertExpression(expr Expression) (int64, error) {
 	var q = `
-	INSERT INTO expressions (expr_id, username, status, root_node_id, result) values ($1, $2, $3, $4, $5)
+	INSERT INTO expressions (expr_id, expr, username, status, root_node_id, result) values ($1, $2, $3, $4, $5, $6)
 	`
 	eu.Lock()
 	defer eu.Unlock()
-	result, err := db.ExecContext(ctx, q, expr.ExprID, expr.Username, expr.Status, expr.RootNodeID, expr.Result)
+	result, err := db.ExecContext(ctx, q, expr.ExprID, expr.Expr, expr.Username, expr.Status, expr.RootNodeID, expr.Result)
 	if err != nil {
+		log.Printf("DB: Error inserting expression %s: %s", expr.ExprID, err)
 		return 0, nil
 	}
 
@@ -142,11 +145,11 @@ func SelectExpression(expr_id string) (Expression, error) {
 	eu.Lock()
 	defer eu.Unlock()
 	var q = `
-	SELECT expr_id, username, status, root_node_id, result
+	SELECT expr_id, expr, username, status, root_node_id, result
 	FROM expressions 
 	WHERE expr_id = $1
 	`
-	err = db.QueryRowContext(ctx, q, expr_id).Scan(&expr.ExprID, &expr.Username, &expr.Status, &expr.RootNodeID, &expr.Result)
+	err = db.QueryRowContext(ctx, q, expr_id).Scan(&expr.ExprID, &expr.Expr, &expr.Username, &expr.Status, &expr.RootNodeID, &expr.Result)
 	if err != nil {
 		log.Printf("DB: SelectExpression error: %v", err)
 	}
@@ -162,7 +165,7 @@ func SelectExpressionsByUser(username string) ([]Expression, error) {
 	eu.Lock()
 	defer eu.Unlock()
 	var q = `
-	SELECT expr_id, username, status, root_node_id, result
+	SELECT expr_id, expr, username, status, root_node_id, result
 	FROM expressions 
 	WHERE username = $1
 	`
@@ -174,7 +177,7 @@ func SelectExpressionsByUser(username string) ([]Expression, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var ex Expression
-		if err := rows.Scan(&ex.ExprID, &ex.Username, &ex.Status, &ex.RootNodeID, &ex.Result); err != nil {
+		if err := rows.Scan(&ex.ExprID, &ex.Expr, &ex.Username, &ex.Status, &ex.RootNodeID, &ex.Result); err != nil {
 			log.Printf("DB: SelectExpressionsByUser::Scan error: %v", err)
 			return expr, err
 		}
