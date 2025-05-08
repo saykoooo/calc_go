@@ -41,9 +41,7 @@ type ExpressionStatus struct {
 }
 
 var (
-	expressions = make(map[string]*Expression)
-	nodes       = make(map[string]*calc.Node)
-	mu          sync.Mutex
+	mu sync.Mutex
 )
 
 func ConfigFromEnv() *Config {
@@ -151,20 +149,23 @@ func (a *Application) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if task.Oper == "/" && task.Arg1 == 0 {
+	if task.Oper == "/" && task.Arg2 == 0 {
 		log.Printf("Division by zero in task %s", task.ID)
-		err = db.SetNodeStatus(task.ID, "error")
+		_, err = db.SetNodeStatus(task.ID, "error")
 		if err != nil {
 			log.Printf("Error changing status for node %s", task.ID)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-		//TODO: remove dead nodes
 		err = db.SetExpressionStatus(task.ExprID, "error")
 		if err != nil {
 			log.Printf("Error changing status for expression %s", task.ExprID)
 		}
 		log.Printf("Task %s contains division by zero", task.ID)
+		err = db.DeleteNodes(task.ExprID)
+		if err != nil {
+			log.Printf("Error deleting nodes for expression %s", task.ExprID)
+		}
 		http.Error(w, "division by zero", http.StatusInternalServerError)
 		return
 	}
@@ -185,7 +186,7 @@ func (a *Application) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = db.SetNodeStatus(task.ID, "in_progress")
+	_, err = db.SetNodeStatus(task.ID, "in_progress")
 	if err != nil {
 		log.Printf("Error changing status for node %s", task.ID)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -436,17 +437,17 @@ func GetExpressionsHandler(w http.ResponseWriter, r *http.Request) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	response := struct {
-		Expressions []ExpressionStatus `json:"expressions"`
-	}{
-		Expressions: make([]ExpressionStatus, 0, len(expressions)),
-	}
-
 	user := r.Header.Get("username")
 
 	exprs, err := db.SelectExpressionsByUser(user)
 	if err != nil {
 		log.Printf("Error while getting expressions: %v", err)
+	}
+
+	response := struct {
+		Expressions []ExpressionStatus `json:"expressions"`
+	}{
+		Expressions: make([]ExpressionStatus, 0, len(exprs)),
 	}
 
 	for _, expr := range exprs {
@@ -516,7 +517,7 @@ func (a *Application) RunServer() error {
 	mux.Handle("POST /api/v1/register", LoggingMiddleware(http.HandlerFunc(RegisterHandler)))
 	mux.Handle("POST /api/v1/login", LoggingMiddleware(http.HandlerFunc(a.LoginHandler)))
 	log.Printf("Web server run on port: %s\n", a.config.Addr)
-	err := db.Init()
+	err := db.Init("data/store.db")
 	if err != nil {
 		log.Panicln(err)
 	}

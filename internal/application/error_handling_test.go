@@ -1,36 +1,52 @@
 package application
 
 import (
-	"github.com/saykoooo/calc_go/internal/calc"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/saykoooo/calc_go/internal/calc"
+	"github.com/saykoooo/calc_go/internal/db"
 )
 
 func TestDivisionByZero(t *testing.T) {
-	clearState()
-
-	// Setup test data
-	num1 := &calc.Node{ID: "1", Type: "number", Status: "done", Result: 5}
-	num2 := &calc.Node{ID: "2", Type: "number", Status: "done", Result: 0}
-	opNode := &calc.Node{
-		ID:        "3",
-		Type:      "operation",
-		Operation: "/",
-		Left:      "1",
-		Right:     "2",
-		Status:    "pending",
-		ExprID:    "e1",
+	nodes := []*calc.Node{
+		{ID: "1", ExprID: "e1", Type: "number", Status: "done", Result: 5},
+		{ID: "2", ExprID: "e1", Type: "number", Status: "done", Result: 0},
+		{
+			ID:        "3",
+			ExprID:    "e1",
+			Type:      "operation",
+			Operation: "/",
+			Left:      "1",
+			Right:     "2",
+			Status:    "pending",
+		},
 	}
-	expr := &Expression{ID: "e1", RootNodeID: "3", Status: "processing"}
 
-	// Добавить локальную блокировку для настройки данных
-	mu.Lock()
-	nodes[num1.ID] = num1
-	nodes[num2.ID] = num2
-	nodes[opNode.ID] = opNode
-	expressions[expr.ID] = expr
-	mu.Unlock() // Важно разблокировать перед вызовом обработчика
+	expr := db.Expression{
+		ExprID:     "e1",
+		Status:     "processing",
+		RootNodeID: "3",
+	}
+
+	err := db.Init("../../data/store.db")
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer db.Stop()
+
+	clearState("e1")
+
+	_, err = db.InsertExpression(expr)
+	if err != nil {
+		t.Fatalf("Failed to insert expression: %v", err)
+	}
+
+	_, err = db.InsertNodes(nodes)
+	if err != nil {
+		t.Fatalf("Failed to insert nodes: %v", err)
+	}
 
 	app := New()
 	req := httptest.NewRequest("GET", "/internal/task", nil)
@@ -38,14 +54,25 @@ func TestDivisionByZero(t *testing.T) {
 
 	app.GetTaskHandler(w, req)
 
-	// Проверки
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("Expected status code %d, got %d", http.StatusInternalServerError, w.Code)
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-	if expr.Status != "error" {
-		t.Errorf("Expected expression status 'error', got '%s'", expr.Status)
+	updatedExpr, err := db.SelectExpression("e1")
+	if err != nil {
+		t.Fatalf("Failed to get expression: %v", err)
+	}
+
+	if updatedExpr.Status != "error" {
+		t.Errorf("Expected expression status 'error', got '%s'", updatedExpr.Status)
+	}
+
+	updatedNode, err := db.SelectNode("3")
+	if err != nil {
+		t.Fatalf("Failed to get node: %v", err)
+	}
+
+	if updatedNode.Status != "error" {
+		t.Errorf("Expected node status 'error', got '%s'", updatedNode.Status)
 	}
 }

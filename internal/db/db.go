@@ -76,7 +76,8 @@ func createTables(ctx context.Context, db *sql.DB) error {
 		oper TEXT,
 		status TEXT,
 		result REAL           
-	);                                                                                                                                                                                       `
+	);
+	`
 	if _, err := db.ExecContext(ctx, nodeTable); err != nil {
 		return err
 	}
@@ -201,9 +202,25 @@ func SetExpressionResult(expr_id string, payload float64) error {
 	return nil
 }
 
+func DeleteExpression(expr_id string) error {
+	q := "DELETE FROM expressions WHERE	expr_id=$1"
+
+	eu.Lock()
+	defer eu.Unlock()
+	result, err := db.ExecContext(ctx, q, expr_id)
+
+	if err != nil {
+		log.Println("DB: Error deleting Expression: ", err)
+		return err
+	}
+	num, _ := result.RowsAffected()
+	log.Println("DB: Expression deleted: ", num)
+	return nil
+}
+
 func InsertUser(user *User) (int64, error) {
 	var q = `
-	INSERT INTO nodes (name, password) values ($1, $2)
+	INSERT INTO users (name, password) values ($1, $2)
 	`
 	mu.Lock()
 	defer mu.Unlock()
@@ -300,7 +317,7 @@ func SelectNodeAsTask() (Task, error) {
 	return task, err
 }
 
-func SetNodeStatus(node_id string, status string) error {
+func SetNodeStatus(node_id string, status string) (int64, error) {
 	q := "UPDATE nodes SET status=$1 WHERE node_id=$2"
 
 	nu.Lock()
@@ -309,11 +326,11 @@ func SetNodeStatus(node_id string, status string) error {
 
 	if err != nil {
 		log.Println("DB: Error updating node: ", err)
-		return err
+		return 0, err
 	}
-	num, _ := result.RowsAffected()
-	log.Println("DB: Node status updated: ", num)
-	return nil
+	// num, _ := result.RowsAffected()
+	// log.Println("DB: Node status updated: ", num)
+	return result.RowsAffected()
 }
 
 func SetNodeResult(node_id string, payload float64) error {
@@ -361,11 +378,11 @@ func compare(hash string, s string) error {
 	return bcrypt.CompareHashAndPassword(existing, incoming)
 }
 
-func Init() error {
+func Init(db_file string) error {
 	ctx = context.TODO()
 	var err error
 
-	db, err = sql.Open("sqlite3", "data/store.db")
+	db, err = sql.Open("sqlite3", db_file)
 	if err != nil {
 		return err
 	}
