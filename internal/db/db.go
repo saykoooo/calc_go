@@ -239,6 +239,22 @@ func InsertUser(user *User) (int64, error) {
 	return id, nil
 }
 
+func DeleteUser(user string) error {
+	q := "DELETE FROM users WHERE	name=$1"
+
+	mu.Lock()
+	defer mu.Unlock()
+	result, err := db.ExecContext(ctx, q, user)
+
+	if err != nil {
+		log.Println("DB: Error deleting user: ", err)
+		return err
+	}
+	num, _ := result.RowsAffected()
+	log.Println("DB: User deleted: ", num)
+	return nil
+}
+
 func InsertNodes(nodes []*calc.Node) (int64, error) {
 	q := "INSERT INTO nodes(node_id,	expr_id, type, l_id, r_id,	oper, status, result) VALUES "
 	vals := []interface{}{}
@@ -331,8 +347,6 @@ func SetNodeStatus(node_id string, status string) (int64, error) {
 		log.Println("DB: Error updating node: ", err)
 		return 0, err
 	}
-	// num, _ := result.RowsAffected()
-	// log.Println("DB: Node status updated: ", num)
 	return result.RowsAffected()
 }
 
