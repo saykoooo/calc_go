@@ -1,15 +1,18 @@
 package agent
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"strconv"
 	"sync"
 	"time"
+
+	"context"
+
+	"github.com/saykoooo/calc_go/proto"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Task struct {
@@ -17,7 +20,7 @@ type Task struct {
 	Arg1          float64 `json:"arg1"`
 	Arg2          float64 `json:"arg2"`
 	Operation     string  `json:"operation"`
-	OperationTime int     `json:"operation_time"`
+	OperationTime int32   `json:"operation_time"`
 }
 
 var (
@@ -26,12 +29,23 @@ var (
 	wg         sync.WaitGroup
 )
 
+var client proto.OrchestratorClient
+
+func initGRPCClient() {
+	conn, err := grpc.Dial("localhost:"+serverPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalf("Failed to connect to gRPC server: %v", err)
+	}
+	client = proto.NewOrchestratorClient(conn)
+}
+
 func RunAgent() {
-	serverPort = os.Getenv("PORT")
+	serverPort = os.Getenv("GRPC_PORT")
 	if serverPort == "" {
-		serverPort = "8080"
+		serverPort = "5000"
 	}
 
+	initGRPCClient()
 	computingPower, _ := strconv.Atoi(os.Getenv("COMPUTING_POWER"))
 	if computingPower <= 0 {
 		computingPower = 1
@@ -84,56 +98,32 @@ func worker() {
 }
 
 func getTask() (*Task, error) {
-	var response struct {
-		Task Task `json:"task"`
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	resp, err := http.Get("http://localhost:" + serverPort + "/internal/task")
+	resp, err := client.GetTask(ctx, &proto.GetTaskRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch task: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("No task available")
+		return nil, err
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode task: %v", err)
-	}
-
-	return &response.Task, nil
+	return &Task{
+		ID:            resp.Id,
+		Arg1:          resp.Arg1,
+		Arg2:          resp.Arg2,
+		Operation:     resp.Operation,
+		OperationTime: int32(resp.OperationTime),
+	}, nil
 }
 
 func sendResult(id string, result float64) error {
-	data := map[string]interface{}{
-		"id":     id,
-		"result": result,
-	}
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return fmt.Errorf("failed to marshal result data: %v", err)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
-	resp, err := http.Post(
-		"http://localhost:"+serverPort+"/internal/task",
-		"application/json",
-		bytes.NewReader(jsonData),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to send result: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status code when sending result: %d", resp.StatusCode)
-	}
-
-	return nil
+	_, err := client.SubmitResult(ctx, &proto.ResultRequest{
+		Id:     id,
+		Result: result,
+	})
+	return err
 }
 
 func compute(a, b float64, op string) (float64, error) {

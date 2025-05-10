@@ -10,14 +10,15 @@ import (
 func main() {
 	argLength := len(os.Args[1:])
 
-	if argLength == 0 {
-		app := application.New()
-		app.RunServer()
-	} else if os.Args[1] == "--agent" {
+	if os.Args[1] == "--agent" {
 		agent.RunAgent()
-	} else if os.Args[1] == "--all" {
+	}
+	if os.Args[1] == "--all" {
 		go agent.RunAgent()
+	}
+	if argLength == 0 || os.Args[1] == "--all" {
 		app := application.New()
+		go app.RunGRPCServer()
 		app.RunServer()
 	}
 }

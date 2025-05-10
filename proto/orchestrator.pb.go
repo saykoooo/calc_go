@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v6.30.2
-// source: proto/calculator.proto
+// source: proto/orchestrator.proto
 
 package proto
 
@@ -21,27 +21,27 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type TaskRequest struct {
+type GetTaskRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *TaskRequest) Reset() {
-	*x = TaskRequest{}
-	mi := &file_proto_calculator_proto_msgTypes[0]
+func (x *GetTaskRequest) Reset() {
+	*x = GetTaskRequest{}
+	mi := &file_proto_orchestrator_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *TaskRequest) String() string {
+func (x *GetTaskRequest) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*TaskRequest) ProtoMessage() {}
+func (*GetTaskRequest) ProtoMessage() {}
 
-func (x *TaskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_calculator_proto_msgTypes[0]
+func (x *GetTaskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_orchestrator_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -52,9 +52,9 @@ func (x *TaskRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use TaskRequest.ProtoReflect.Descriptor instead.
-func (*TaskRequest) Descriptor() ([]byte, []int) {
-	return file_proto_calculator_proto_rawDescGZIP(), []int{0}
+// Deprecated: Use GetTaskRequest.ProtoReflect.Descriptor instead.
+func (*GetTaskRequest) Descriptor() ([]byte, []int) {
+	return file_proto_orchestrator_proto_rawDescGZIP(), []int{0}
 }
 
 type TaskResponse struct {
@@ -63,14 +63,14 @@ type TaskResponse struct {
 	Arg1          float64                `protobuf:"fixed64,2,opt,name=arg1,proto3" json:"arg1,omitempty"`
 	Arg2          float64                `protobuf:"fixed64,3,opt,name=arg2,proto3" json:"arg2,omitempty"`
 	Operation     string                 `protobuf:"bytes,4,opt,name=operation,proto3" json:"operation,omitempty"`
-	OperationTime int64                  `protobuf:"varint,5,opt,name=operation_time,json=operationTime,proto3" json:"operation_time,omitempty"`
+	OperationTime int32                  `protobuf:"varint,5,opt,name=operation_time,json=operationTime,proto3" json:"operation_time,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TaskResponse) Reset() {
 	*x = TaskResponse{}
-	mi := &file_proto_calculator_proto_msgTypes[1]
+	mi := &file_proto_orchestrator_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -82,7 +82,7 @@ func (x *TaskResponse) String() string {
 func (*TaskResponse) ProtoMessage() {}
 
 func (x *TaskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_calculator_proto_msgTypes[1]
+	mi := &file_proto_orchestrator_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -95,7 +95,7 @@ func (x *TaskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TaskResponse.ProtoReflect.Descriptor instead.
 func (*TaskResponse) Descriptor() ([]byte, []int) {
-	return file_proto_calculator_proto_rawDescGZIP(), []int{1}
+	return file_proto_orchestrator_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *TaskResponse) GetId() string {
@@ -126,7 +126,7 @@ func (x *TaskResponse) GetOperation() string {
 	return ""
 }
 
-func (x *TaskResponse) GetOperationTime() int64 {
+func (x *TaskResponse) GetOperationTime() int32 {
 	if x != nil {
 		return x.OperationTime
 	}
@@ -143,7 +143,7 @@ type ResultRequest struct {
 
 func (x *ResultRequest) Reset() {
 	*x = ResultRequest{}
-	mi := &file_proto_calculator_proto_msgTypes[2]
+	mi := &file_proto_orchestrator_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -155,7 +155,7 @@ func (x *ResultRequest) String() string {
 func (*ResultRequest) ProtoMessage() {}
 
 func (x *ResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_calculator_proto_msgTypes[2]
+	mi := &file_proto_orchestrator_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -168,7 +168,7 @@ func (x *ResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultRequest.ProtoReflect.Descriptor instead.
 func (*ResultRequest) Descriptor() ([]byte, []int) {
-	return file_proto_calculator_proto_rawDescGZIP(), []int{2}
+	return file_proto_orchestrator_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ResultRequest) GetId() string {
@@ -185,28 +185,27 @@ func (x *ResultRequest) GetResult() float64 {
 	return 0
 }
 
-type ResultResponse struct {
+type SubmitResultResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *ResultResponse) Reset() {
-	*x = ResultResponse{}
-	mi := &file_proto_calculator_proto_msgTypes[3]
+func (x *SubmitResultResponse) Reset() {
+	*x = SubmitResultResponse{}
+	mi := &file_proto_orchestrator_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ResultResponse) String() string {
+func (x *SubmitResultResponse) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ResultResponse) ProtoMessage() {}
+func (*SubmitResultResponse) ProtoMessage() {}
 
-func (x *ResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_calculator_proto_msgTypes[3]
+func (x *SubmitResultResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_orchestrator_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -217,64 +216,55 @@ func (x *ResultResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ResultResponse.ProtoReflect.Descriptor instead.
-func (*ResultResponse) Descriptor() ([]byte, []int) {
-	return file_proto_calculator_proto_rawDescGZIP(), []int{3}
+// Deprecated: Use SubmitResultResponse.ProtoReflect.Descriptor instead.
+func (*SubmitResultResponse) Descriptor() ([]byte, []int) {
+	return file_proto_orchestrator_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *ResultResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
+var File_proto_orchestrator_proto protoreflect.FileDescriptor
 
-var File_proto_calculator_proto protoreflect.FileDescriptor
-
-const file_proto_calculator_proto_rawDesc = "" +
+const file_proto_orchestrator_proto_rawDesc = "" +
 	"\n" +
-	"\x16proto/calculator.proto\x12\n" +
-	"calculator\"\r\n" +
-	"\vTaskRequest\"\x8b\x01\n" +
+	"\x18proto/orchestrator.proto\x12\forchestrator\"\x10\n" +
+	"\x0eGetTaskRequest\"\x8b\x01\n" +
 	"\fTaskResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04arg1\x18\x02 \x01(\x01R\x04arg1\x12\x12\n" +
 	"\x04arg2\x18\x03 \x01(\x01R\x04arg2\x12\x1c\n" +
 	"\toperation\x18\x04 \x01(\tR\toperation\x12%\n" +
-	"\x0eoperation_time\x18\x05 \x01(\x03R\roperationTime\"7\n" +
+	"\x0eoperation_time\x18\x05 \x01(\x05R\roperationTime\"7\n" +
 	"\rResultRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x16\n" +
-	"\x06result\x18\x02 \x01(\x01R\x06result\"*\n" +
-	"\x0eResultResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess2\x97\x01\n" +
-	"\fOrchestrator\x12>\n" +
-	"\aGetTask\x12\x17.calculator.TaskRequest\x1a\x18.calculator.TaskResponse\"\x00\x12G\n" +
-	"\fSubmitResult\x12\x19.calculator.ResultRequest\x1a\x1a.calculator.ResultResponse\"\x00B#Z!github.com/saykoooo/calc_go/protob\x06proto3"
+	"\x06result\x18\x02 \x01(\x01R\x06result\"\x16\n" +
+	"\x14SubmitResultResponse2\xa4\x01\n" +
+	"\fOrchestrator\x12C\n" +
+	"\aGetTask\x12\x1c.orchestrator.GetTaskRequest\x1a\x1a.orchestrator.TaskResponse\x12O\n" +
+	"\fSubmitResult\x12\x1b.orchestrator.ResultRequest\x1a\".orchestrator.SubmitResultResponseB#Z!github.com/saykoooo/calc_go/protob\x06proto3"
 
 var (
-	file_proto_calculator_proto_rawDescOnce sync.Once
-	file_proto_calculator_proto_rawDescData []byte
+	file_proto_orchestrator_proto_rawDescOnce sync.Once
+	file_proto_orchestrator_proto_rawDescData []byte
 )
 
-func file_proto_calculator_proto_rawDescGZIP() []byte {
-	file_proto_calculator_proto_rawDescOnce.Do(func() {
-		file_proto_calculator_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_calculator_proto_rawDesc), len(file_proto_calculator_proto_rawDesc)))
+func file_proto_orchestrator_proto_rawDescGZIP() []byte {
+	file_proto_orchestrator_proto_rawDescOnce.Do(func() {
+		file_proto_orchestrator_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_orchestrator_proto_rawDesc), len(file_proto_orchestrator_proto_rawDesc)))
 	})
-	return file_proto_calculator_proto_rawDescData
+	return file_proto_orchestrator_proto_rawDescData
 }
 
-var file_proto_calculator_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_proto_calculator_proto_goTypes = []any{
-	(*TaskRequest)(nil),    // 0: calculator.TaskRequest
-	(*TaskResponse)(nil),   // 1: calculator.TaskResponse
-	(*ResultRequest)(nil),  // 2: calculator.ResultRequest
-	(*ResultResponse)(nil), // 3: calculator.ResultResponse
+var file_proto_orchestrator_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_proto_orchestrator_proto_goTypes = []any{
+	(*GetTaskRequest)(nil),       // 0: orchestrator.GetTaskRequest
+	(*TaskResponse)(nil),         // 1: orchestrator.TaskResponse
+	(*ResultRequest)(nil),        // 2: orchestrator.ResultRequest
+	(*SubmitResultResponse)(nil), // 3: orchestrator.SubmitResultResponse
 }
-var file_proto_calculator_proto_depIdxs = []int32{
-	0, // 0: calculator.Orchestrator.GetTask:input_type -> calculator.TaskRequest
-	2, // 1: calculator.Orchestrator.SubmitResult:input_type -> calculator.ResultRequest
-	1, // 2: calculator.Orchestrator.GetTask:output_type -> calculator.TaskResponse
-	3, // 3: calculator.Orchestrator.SubmitResult:output_type -> calculator.ResultResponse
+var file_proto_orchestrator_proto_depIdxs = []int32{
+	0, // 0: orchestrator.Orchestrator.GetTask:input_type -> orchestrator.GetTaskRequest
+	2, // 1: orchestrator.Orchestrator.SubmitResult:input_type -> orchestrator.ResultRequest
+	1, // 2: orchestrator.Orchestrator.GetTask:output_type -> orchestrator.TaskResponse
+	3, // 3: orchestrator.Orchestrator.SubmitResult:output_type -> orchestrator.SubmitResultResponse
 	2, // [2:4] is the sub-list for method output_type
 	0, // [0:2] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -282,26 +272,26 @@ var file_proto_calculator_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_proto_calculator_proto_init() }
-func file_proto_calculator_proto_init() {
-	if File_proto_calculator_proto != nil {
+func init() { file_proto_orchestrator_proto_init() }
+func file_proto_orchestrator_proto_init() {
+	if File_proto_orchestrator_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_calculator_proto_rawDesc), len(file_proto_calculator_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_orchestrator_proto_rawDesc), len(file_proto_orchestrator_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_proto_calculator_proto_goTypes,
-		DependencyIndexes: file_proto_calculator_proto_depIdxs,
-		MessageInfos:      file_proto_calculator_proto_msgTypes,
+		GoTypes:           file_proto_orchestrator_proto_goTypes,
+		DependencyIndexes: file_proto_orchestrator_proto_depIdxs,
+		MessageInfos:      file_proto_orchestrator_proto_msgTypes,
 	}.Build()
-	File_proto_calculator_proto = out.File
-	file_proto_calculator_proto_goTypes = nil
-	file_proto_calculator_proto_depIdxs = nil
+	File_proto_orchestrator_proto = out.File
+	file_proto_orchestrator_proto_goTypes = nil
+	file_proto_orchestrator_proto_depIdxs = nil
 }

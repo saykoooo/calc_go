@@ -1,9 +1,11 @@
 package application
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -13,12 +15,15 @@ import (
 
 	"github.com/saykoooo/calc_go/internal/calc"
 	"github.com/saykoooo/calc_go/internal/db"
+	"github.com/saykoooo/calc_go/proto"
+	"google.golang.org/grpc"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
 type Config struct {
 	Addr               string
+	GRPC               string
 	JwtSecret          string
 	JwtExpiration      time.Duration
 	TimeAddition       time.Duration
@@ -41,6 +46,11 @@ type ExpressionStatus struct {
 	Expression string  `json:"expression"`
 }
 
+type grpcServer struct {
+	app *Application
+	proto.UnimplementedOrchestratorServer
+}
+
 var (
 	mu sync.Mutex
 )
@@ -51,6 +61,11 @@ func ConfigFromEnv() *Config {
 	if config.Addr == "" {
 		log.Println("Missing PORT environment variable. Using default value: 8080")
 		config.Addr = "8080"
+	}
+	config.GRPC = os.Getenv("GRPC_PORT")
+	if config.GRPC == "" {
+		log.Println("Missing GRPC_PORT environment variable. Using default value: 5000")
+		config.GRPC = "5000"
 	}
 	config.JwtSecret = os.Getenv("JWT_SECRET")
 	if config.JwtSecret == "" {
@@ -89,6 +104,60 @@ func New() *Application {
 
 type Request struct {
 	Expression string `json:"expression"`
+}
+
+func (s *grpcServer) GetTask(ctx context.Context, req *proto.GetTaskRequest) (*proto.TaskResponse, error) {
+	task, err := db.SelectNodeAsTask()
+	if task.ID == "" || err != nil {
+		return nil, fmt.Errorf("no task available")
+	}
+	var opTime time.Duration
+	switch task.Oper {
+	case "+":
+		opTime = s.app.config.TimeAddition
+	case "-":
+		opTime = s.app.config.TimeSubtraction
+	case "*":
+		opTime = s.app.config.TimeMultiplication
+	case "/":
+		opTime = s.app.config.TimeDivision
+	default:
+		return nil, fmt.Errorf("invalid operation")
+	}
+	return &proto.TaskResponse{
+		Id:            task.ID,
+		Arg1:          task.Arg1,
+		Arg2:          task.Arg2,
+		Operation:     task.Oper,
+		OperationTime: int32(opTime.Milliseconds()),
+	}, nil
+}
+
+func (s *grpcServer) SubmitResult(ctx context.Context, req *proto.ResultRequest) (*proto.SubmitResultResponse, error) {
+	mu.Lock()
+	defer mu.Unlock()
+
+	err := db.SetNodeResult(req.Id, req.Result)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set node result")
+	}
+
+	node, err := db.SelectNode(req.Id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node")
+	}
+
+	expr, err := db.SelectExpression(node.ExprID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get expression")
+	}
+
+	if node.ID == expr.RootNodeID {
+		db.SetExpressionResult(expr.ExprID, req.Result)
+		db.DeleteNodes(expr.ExprID)
+	}
+
+	return &proto.SubmitResultResponse{}, nil
 }
 
 func LoggingMiddleware(next http.Handler) http.Handler {
@@ -133,78 +202,73 @@ func (a *Application) AuthMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (a *Application) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
-	mu.Lock()
-	defer mu.Unlock()
-
-	log.Println("Searching for tasks...")
-	task, err := db.SelectNodeAsTask()
-	if task.ID == "" {
-		log.Println("No pending tasks available")
-		http.Error(w, "no task", http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		log.Printf("Error while getting task from db")
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	if task.Oper == "/" && task.Arg2 == 0 {
-		log.Printf("Division by zero in task %s", task.ID)
-		_, err = db.SetNodeStatus(task.ID, "error")
-		if err != nil {
-			log.Printf("Error changing status for node %s", task.ID)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-		err = db.SetExpressionStatus(task.ExprID, "error")
-		if err != nil {
-			log.Printf("Error changing status for expression %s", task.ExprID)
-		}
-		log.Printf("Task %s contains division by zero", task.ID)
-		err = db.DeleteNodes(task.ExprID)
-		if err != nil {
-			log.Printf("Error deleting nodes for expression %s", task.ExprID)
-		}
-		http.Error(w, "division by zero", http.StatusInternalServerError)
-		return
-	}
-
-	var opTime time.Duration
-	switch task.Oper {
-	case "+":
-		opTime = a.config.TimeAddition
-	case "-":
-		opTime = a.config.TimeSubtraction
-	case "*":
-		opTime = a.config.TimeMultiplication
-	case "/":
-		opTime = a.config.TimeDivision
-	default:
-		log.Printf("Invalid operation %s in task %s", task.Oper, task.ID)
-		http.Error(w, "invalid operation", http.StatusInternalServerError)
-		return
-	}
-
-	_, err = db.SetNodeStatus(task.ID, "in_progress")
-	if err != nil {
-		log.Printf("Error changing status for node %s", task.ID)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("Task %s marked as in_progress", task.ID)
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"task": map[string]interface{}{
-			"id":             task.ID,
-			"arg1":           task.Arg1,
-			"arg2":           task.Arg2,
-			"operation":      task.Oper,
-			"operation_time": opTime.Milliseconds(),
-		},
-	})
-}
+// func (a *Application) GetTaskHandler(w http.ResponseWriter, r *http.Request) {
+// 	mu.Lock()
+// 	defer mu.Unlock()
+// 	log.Println("Searching for tasks...")
+// 	task, err := db.SelectNodeAsTask()
+// 	if task.ID == "" {
+// 		log.Println("No pending tasks available")
+// 		http.Error(w, "no task", http.StatusNotFound)
+// 		return
+// 	}
+// 	if err != nil {
+// 		log.Printf("Error while getting task from db")
+// 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	if task.Oper == "/" && task.Arg2 == 0 {
+// 		log.Printf("Division by zero in task %s", task.ID)
+// 		_, err = db.SetNodeStatus(task.ID, "error")
+// 		if err != nil {
+// 			log.Printf("Error changing status for node %s", task.ID)
+// 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+// 			return
+// 		}
+// 		err = db.SetExpressionStatus(task.ExprID, "error")
+// 		if err != nil {
+// 			log.Printf("Error changing status for expression %s", task.ExprID)
+// 		}
+// 		log.Printf("Task %s contains division by zero", task.ID)
+// 		err = db.DeleteNodes(task.ExprID)
+// 		if err != nil {
+// 			log.Printf("Error deleting nodes for expression %s", task.ExprID)
+// 		}
+// 		http.Error(w, "division by zero", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	var opTime time.Duration
+// 	switch task.Oper {
+// 	case "+":
+// 		opTime = a.config.TimeAddition
+// 	case "-":
+// 		opTime = a.config.TimeSubtraction
+// 	case "*":
+// 		opTime = a.config.TimeMultiplication
+// 	case "/":
+// 		opTime = a.config.TimeDivision
+// 	default:
+// 		log.Printf("Invalid operation %s in task %s", task.Oper, task.ID)
+// 		http.Error(w, "invalid operation", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	_, err = db.SetNodeStatus(task.ID, "in_progress")
+// 	if err != nil {
+// 		log.Printf("Error changing status for node %s", task.ID)
+// 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	log.Printf("Task %s marked as in_progress", task.ID)
+// 	json.NewEncoder(w).Encode(map[string]interface{}{
+// 		"task": map[string]interface{}{
+// 			"id":             task.ID,
+// 			"arg1":           task.Arg1,
+// 			"arg2":           task.Arg2,
+// 			"operation":      task.Oper,
+// 			"operation_time": opTime.Milliseconds(),
+// 		},
+// 	})
+// }
 
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -307,59 +371,52 @@ func (a *Application) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func PostTaskHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID     string  `json:"id"`
-		Result float64 `json:"result"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("Invalid request body: %v", err)
-		http.Error(w, "invalid request", http.StatusBadRequest)
-		return
-	}
-
-	mu.Lock()
-	defer mu.Unlock()
-
-	err := db.SetNodeResult(req.ID, req.Result)
-	if err != nil {
-		log.Printf("Error setting result for node %s", req.ID)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("Task %s completed with result %f", req.ID, req.Result)
-
-	node, err := db.SelectNode(req.ID)
-	if err != nil {
-		log.Printf("Error getting node %s", req.ID)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	expr, err := db.SelectExpression(node.ExprID)
-	if err != nil {
-		log.Printf("Error getting expression %s", node.ExprID)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	if node.ID == expr.RootNodeID {
-		err = db.SetExpressionResult(expr.ExprID, req.Result)
-		if err != nil {
-			log.Printf("Error setting result for expression %s", expr.ExprID)
-			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-			return
-		}
-		log.Printf("Expression %s completed with result %f", expr.ExprID, req.Result)
-		err := db.DeleteNodes(expr.ExprID)
-		if err != nil {
-			log.Printf("Error deleting used nodes for expr: %s", expr.ExprID)
-		}
-	}
-
-	w.WriteHeader(http.StatusOK)
-}
+// func PostTaskHandler(w http.ResponseWriter, r *http.Request) {
+// 	var req struct {
+// 		ID     string  `json:"id"`
+// 		Result float64 `json:"result"`
+// 	}
+// 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+// 		log.Printf("Invalid request body: %v", err)
+// 		http.Error(w, "invalid request", http.StatusBadRequest)
+// 		return
+// 	}
+// 	mu.Lock()
+// 	defer mu.Unlock()
+// 	err := db.SetNodeResult(req.ID, req.Result)
+// 	if err != nil {
+// 		log.Printf("Error setting result for node %s", req.ID)
+// 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	log.Printf("Task %s completed with result %f", req.ID, req.Result)
+// 	node, err := db.SelectNode(req.ID)
+// 	if err != nil {
+// 		log.Printf("Error getting node %s", req.ID)
+// 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	expr, err := db.SelectExpression(node.ExprID)
+// 	if err != nil {
+// 		log.Printf("Error getting expression %s", node.ExprID)
+// 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+// 		return
+// 	}
+// 	if node.ID == expr.RootNodeID {
+// 		err = db.SetExpressionResult(expr.ExprID, req.Result)
+// 		if err != nil {
+// 			log.Printf("Error setting result for expression %s", expr.ExprID)
+// 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+// 			return
+// 		}
+// 		log.Printf("Expression %s completed with result %f", expr.ExprID, req.Result)
+// 		err := db.DeleteNodes(expr.ExprID)
+// 		if err != nil {
+// 			log.Printf("Error deleting used nodes for expr: %s", expr.ExprID)
+// 		}
+// 	}
+// 	w.WriteHeader(http.StatusOK)
+// }
 
 func NotFoundHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/api/v1/calculate" {
@@ -503,6 +560,19 @@ func GetExpressionByIdHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *Application) RunGRPCServer() error {
+	lis, err := net.Listen("tcp", ":"+a.config.GRPC)
+	if err != nil {
+		log.Fatalf("Failed to listen: %v", err)
+	}
+
+	server := grpc.NewServer()
+	proto.RegisterOrchestratorServer(server, &grpcServer{app: a})
+
+	log.Printf("Starting gRPC server on port %s", a.config.GRPC)
+	return server.Serve(lis)
+}
+
 func (a *Application) RunServer() error {
 	mux := http.NewServeMux()
 	fs := http.FileServer(http.Dir("web/"))
@@ -511,8 +581,8 @@ func (a *Application) RunServer() error {
 	mux.Handle("/api/v1/calculate", LoggingMiddleware(a.AuthMiddleware(http.HandlerFunc(CalcHandler))))
 	mux.Handle("/api/v1/expressions", LoggingMiddleware(a.AuthMiddleware(http.HandlerFunc(GetExpressionsHandler))))
 	mux.Handle("/api/v1/expressions/{id}", LoggingMiddleware(a.AuthMiddleware(http.HandlerFunc(GetExpressionByIdHandler))))
-	mux.Handle("GET /internal/task", LoggingMiddleware(http.HandlerFunc(a.GetTaskHandler)))
-	mux.Handle("POST /internal/task", LoggingMiddleware(http.HandlerFunc(PostTaskHandler)))
+	// mux.Handle("GET /internal/task", LoggingMiddleware(http.HandlerFunc(a.GetTaskHandler)))
+	// mux.Handle("POST /internal/task", LoggingMiddleware(http.HandlerFunc(PostTaskHandler)))
 	mux.Handle("POST /api/v1/register", LoggingMiddleware(http.HandlerFunc(RegisterHandler)))
 	mux.Handle("POST /api/v1/login", LoggingMiddleware(http.HandlerFunc(a.LoginHandler)))
 	log.Printf("Web server run on port: %s\n", a.config.Addr)

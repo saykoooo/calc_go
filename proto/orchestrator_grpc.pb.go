@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.30.2
-// source: proto/calculator.proto
+// source: proto/orchestrator.proto
 
 package proto
 
@@ -19,16 +19,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Orchestrator_GetTask_FullMethodName      = "/calculator.Orchestrator/GetTask"
-	Orchestrator_SubmitResult_FullMethodName = "/calculator.Orchestrator/SubmitResult"
+	Orchestrator_GetTask_FullMethodName      = "/orchestrator.Orchestrator/GetTask"
+	Orchestrator_SubmitResult_FullMethodName = "/orchestrator.Orchestrator/SubmitResult"
 )
 
 // OrchestratorClient is the client API for Orchestrator service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type OrchestratorClient interface {
-	GetTask(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskResponse, error)
-	SubmitResult(ctx context.Context, in *ResultRequest, opts ...grpc.CallOption) (*ResultResponse, error)
+	// Агент запрашивает задачу у оркестратора
+	GetTask(ctx context.Context, in *GetTaskRequest, opts ...grpc.CallOption) (*TaskResponse, error)
+	// Агент отправляет результат вычисления
+	SubmitResult(ctx context.Context, in *ResultRequest, opts ...grpc.CallOption) (*SubmitResultResponse, error)
 }
 
 type orchestratorClient struct {
@@ -39,7 +41,7 @@ func NewOrchestratorClient(cc grpc.ClientConnInterface) OrchestratorClient {
 	return &orchestratorClient{cc}
 }
 
-func (c *orchestratorClient) GetTask(ctx context.Context, in *TaskRequest, opts ...grpc.CallOption) (*TaskResponse, error) {
+func (c *orchestratorClient) GetTask(ctx context.Context, in *GetTaskRequest, opts ...grpc.CallOption) (*TaskResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TaskResponse)
 	err := c.cc.Invoke(ctx, Orchestrator_GetTask_FullMethodName, in, out, cOpts...)
@@ -49,9 +51,9 @@ func (c *orchestratorClient) GetTask(ctx context.Context, in *TaskRequest, opts 
 	return out, nil
 }
 
-func (c *orchestratorClient) SubmitResult(ctx context.Context, in *ResultRequest, opts ...grpc.CallOption) (*ResultResponse, error) {
+func (c *orchestratorClient) SubmitResult(ctx context.Context, in *ResultRequest, opts ...grpc.CallOption) (*SubmitResultResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ResultResponse)
+	out := new(SubmitResultResponse)
 	err := c.cc.Invoke(ctx, Orchestrator_SubmitResult_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -63,8 +65,10 @@ func (c *orchestratorClient) SubmitResult(ctx context.Context, in *ResultRequest
 // All implementations must embed UnimplementedOrchestratorServer
 // for forward compatibility.
 type OrchestratorServer interface {
-	GetTask(context.Context, *TaskRequest) (*TaskResponse, error)
-	SubmitResult(context.Context, *ResultRequest) (*ResultResponse, error)
+	// Агент запрашивает задачу у оркестратора
+	GetTask(context.Context, *GetTaskRequest) (*TaskResponse, error)
+	// Агент отправляет результат вычисления
+	SubmitResult(context.Context, *ResultRequest) (*SubmitResultResponse, error)
 	mustEmbedUnimplementedOrchestratorServer()
 }
 
@@ -75,10 +79,10 @@ type OrchestratorServer interface {
 // pointer dereference when methods are called.
 type UnimplementedOrchestratorServer struct{}
 
-func (UnimplementedOrchestratorServer) GetTask(context.Context, *TaskRequest) (*TaskResponse, error) {
+func (UnimplementedOrchestratorServer) GetTask(context.Context, *GetTaskRequest) (*TaskResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTask not implemented")
 }
-func (UnimplementedOrchestratorServer) SubmitResult(context.Context, *ResultRequest) (*ResultResponse, error) {
+func (UnimplementedOrchestratorServer) SubmitResult(context.Context, *ResultRequest) (*SubmitResultResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SubmitResult not implemented")
 }
 func (UnimplementedOrchestratorServer) mustEmbedUnimplementedOrchestratorServer() {}
@@ -103,7 +107,7 @@ func RegisterOrchestratorServer(s grpc.ServiceRegistrar, srv OrchestratorServer)
 }
 
 func _Orchestrator_GetTask_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TaskRequest)
+	in := new(GetTaskRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -115,7 +119,7 @@ func _Orchestrator_GetTask_Handler(srv interface{}, ctx context.Context, dec fun
 		FullMethod: Orchestrator_GetTask_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OrchestratorServer).GetTask(ctx, req.(*TaskRequest))
+		return srv.(OrchestratorServer).GetTask(ctx, req.(*GetTaskRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -142,7 +146,7 @@ func _Orchestrator_SubmitResult_Handler(srv interface{}, ctx context.Context, de
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var Orchestrator_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "calculator.Orchestrator",
+	ServiceName: "orchestrator.Orchestrator",
 	HandlerType: (*OrchestratorServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -155,5 +159,5 @@ var Orchestrator_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "proto/calculator.proto",
+	Metadata: "proto/orchestrator.proto",
 }
