@@ -92,7 +92,7 @@ go run ./cmd --all
    - `internal/calc/evaluate_test.go`
    - `internal/calc/parser_test.go`
  - для базы данных:
-  - `internal/db/db_test.go`
+   - `internal/db/db_test.go`
  
 Запуск тестов:
 ```bash
@@ -107,11 +107,11 @@ go test -v ./...
 ```bash
 curl -o - -L -s -w "%{http_code}" --location 'localhost:8080/api/v1/register' --header 'Content-Type: application/json' --data '{"login": "username","password": "passwd"}'
 ```
-  - Статус ответа при первом выполнении запроса:
+Статус ответа при первом выполнении запроса:
 ```
 200
 ```
-  - Ответ и статус при повторном выполнении запроса:
+Ответ и статус при повторном выполнении запроса:
 ```
 User already exists
 400
