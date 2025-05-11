@@ -1,10 +1,15 @@
 package agent
 
 import (
+	"context"
 	"testing"
+
+	"github.com/saykoooo/calc_go/proto"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"google.golang.org/grpc"
 )
 
-// Тестирование функции compute
 func TestCompute(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -34,4 +39,57 @@ func TestCompute(t *testing.T) {
 			}
 		})
 	}
+}
+
+type MockOrchestratorClient struct {
+	mock.Mock
+}
+
+func (m *MockOrchestratorClient) GetTask(ctx context.Context, in *proto.GetTaskRequest, opts ...grpc.CallOption) (*proto.TaskResponse, error) {
+	args := m.Called(ctx, in)
+	return args.Get(0).(*proto.TaskResponse), args.Error(1)
+}
+
+func (m *MockOrchestratorClient) SubmitResult(ctx context.Context, in *proto.ResultRequest, opts ...grpc.CallOption) (*proto.SubmitResultResponse, error) {
+	args := m.Called(ctx, in)
+	return args.Get(0).(*proto.SubmitResultResponse), args.Error(1)
+}
+
+func TestGetTask(t *testing.T) {
+	mockClient := new(MockOrchestratorClient)
+	client = mockClient
+
+	expectedTask := &proto.TaskResponse{
+		Id:            "task1",
+		Arg1:          2,
+		Arg2:          3,
+		Operation:     "+",
+		OperationTime: 100,
+	}
+
+	mockClient.On("GetTask", mock.Anything, &proto.GetTaskRequest{}).Return(expectedTask, nil)
+
+	task, err := getTask()
+	assert.NoError(t, err)
+	assert.Equal(t, expectedTask.Id, task.ID)
+	assert.Equal(t, expectedTask.Arg1, task.Arg1)
+	assert.Equal(t, expectedTask.Arg2, task.Arg2)
+	assert.Equal(t, expectedTask.Operation, task.Operation)
+	assert.Equal(t, expectedTask.OperationTime, task.OperationTime)
+
+	mockClient.AssertExpectations(t)
+}
+
+func TestSendResult(t *testing.T) {
+	mockClient := new(MockOrchestratorClient)
+	client = mockClient
+
+	mockClient.On("SubmitResult", mock.Anything, &proto.ResultRequest{
+		Id:     "task1",
+		Result: 5,
+	}).Return(&proto.SubmitResultResponse{}, nil)
+
+	err := sendResult("task1", 5)
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
 }
